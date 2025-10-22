@@ -1,0 +1,26 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": { "value": "westeurope" },
+    "prefix": { "value": "pgpatroni" },
+    "adminUsername": { "value": "azureuser" },
+    "adminSshPubKey": { "value": "ssh-ed25519 AAAA... yourkey" },
+    "vmSize": { "value": "Standard_D8s_v5" },
+    "dataDiskSizeGB": { "value": 1024 },
+    "walDiskSizeGB": { "value": 512 },
+    "addressPrefix": { "value": "10.50.0.0/16" },
+    "subnetPrefix": { "value": "10.50.1.0/24" },
+    "zones": { "value": [ "1", "2", "3" ] },
+    "lbPrivateIP": { "value": "10.50.1.10" },
+    "postgresPassword": { "value": "ChangeMe123!" },
+    "replicatorPassword": { "value": "ChangeMe123!" },
+    "enablePublicLB": { "value": false },
+    "enablePgBouncerTier": { "value": true },
+    "pgbouncerLbPrivateIP": { "value": "10.50.1.11" },
+    "pgbouncerDefaultPool": { "value": 200 },
+    "pgbouncerMaxClientConn": { "value": 2000 },
+    "pgbouncerAdminUser": { "value": "pgbouncer" },
+    "pgbouncerAdminPass": { "value": "StrongPass123!" }
+  }
+}

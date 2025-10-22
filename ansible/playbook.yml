@@ -1,0 +1,56 @@
+---
+- name: Configure PostgreSQL Patroni HA Cluster
+  hosts: db_nodes
+  become: yes
+  tasks:
+    - name: Check Patroni status
+      command: systemctl is-active patroni
+      register: patroni_status
+      failed_when: false
+
+    - name: Check PostgreSQL status
+      command: systemctl is-active postgresql
+      register: postgres_status
+      failed_when: false
+
+    - name: Display Patroni status
+      debug:
+        msg: "Patroni status on {{ inventory_hostname }}: {{ patroni_status.stdout }}"
+
+    - name: Display PostgreSQL status
+      debug:
+        msg: "PostgreSQL status on {{ inventory_hostname }}: {{ postgres_status.stdout }}"
+
+    - name: Check Patroni cluster status
+      uri:
+        url: "http://{{ ansible_host }}:8008/cluster"
+        method: GET
+        return_content: yes
+      register: cluster_status
+      failed_when: false
+
+    - name: Display cluster status
+      debug:
+        msg: "{{ cluster_status.json }}"
+
+- name: Configure PgBouncer
+  hosts: pgbouncer_nodes
+  become: yes
+  tasks:
+    - name: Check PgBouncer status
+      command: systemctl is-active pgbouncer
+      register: pgbouncer_status
+      failed_when: false
+
+    - name: Display PgBouncer status
+      debug:
+        msg: "PgBouncer status on {{ inventory_hostname }}: {{ pgbouncer_status.stdout }}"
+
+    - name: Test PgBouncer connection
+      command: psql -h localhost -p 6432 -U postgres -d postgres -c "SELECT version();"
+      register: pgbouncer_test
+      failed_when: false
+
+    - name: Display PgBouncer test result
+      debug:
+        msg: "PgBouncer test on {{ inventory_hostname }}: {{ pgbouncer_test.stdout }}"

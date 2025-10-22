@@ -1,0 +1,202 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.2.0.0",
+  "parameters": {
+    "location": { "type": "string", "defaultValue": "westeurope" },
+    "prefix": { "type": "string", "defaultValue": "pgpatroni" },
+    "adminUsername": { "type": "string" },
+    "adminSshPubKey": { "type": "string" },
+    "vmSize": { "type": "string", "defaultValue": "Standard_D4s_v5" },
+    "dataDiskSizeGB": { "type": "int", "defaultValue": 1024 },
+    "walDiskSizeGB": { "type": "int", "defaultValue": 512 },
+    "addressPrefix": { "type": "string", "defaultValue": "10.50.0.0/16" },
+    "subnetPrefix": { "type": "string", "defaultValue": "10.50.1.0/24" },
+    "zones": { "type": "array", "defaultValue": [ "1", "2", "3" ] },
+    "lbPrivateIP": { "type": "string", "defaultValue": "10.50.1.10" },
+    "postgresPassword": { "type": "secureString" },
+    "replicatorPassword": { "type": "secureString" },
+    "enablePublicLB": { "type": "bool", "defaultValue": false },
+    "enablePgBouncerTier": { "type": "bool", "defaultValue": true },
+    "pgbouncerLbPrivateIP": { "type": "string", "defaultValue": "10.50.1.11" },
+    "pgbouncerDefaultPool": { "type": "int", "defaultValue": 200 },
+    "pgbouncerMaxClientConn": { "type": "int", "defaultValue": 2000 },
+    "pgbouncerAdminUser": { "type": "string", "defaultValue": "pgbouncer" },
+    "pgbouncerAdminPass": { "type": "secureString" }
+  },
+  "variables": {
+    "vnetName": "[format('{0}-vnet', parameters('prefix'))]",
+    "subnetName": "db",
+    "nsgName": "[format('{0}-nsg', parameters('prefix'))]",
+    "ilbName": "[format('{0}-ilb', parameters('prefix'))]",
+    "elbName": "[format('{0}-elb', parameters('prefix'))]",
+    "pgbIlbName": "[format('{0}-pgb-ilb', parameters('prefix'))]",
+    "bePoolName": "bepool",
+    "pgbBePoolName": "pgb-bepool",
+    "probeName": "patroniProbe",
+    "pgbProbeName": "pgbProbe",
+    "lbruleName": "pg",
+    "pgbRuleName": "pgb",
+    "vmNames": [
+      "[format('{0}-1', parameters('prefix'))]",
+      "[format('{0}-2', parameters('prefix'))]",
+      "[format('{0}-3', parameters('prefix'))]"
+    ],
+    "vmIps": [ "10.50.1.4", "10.50.1.5", "10.50.1.6" ],
+    "pgbVmNames": [
+      "[format('{0}-pgb-1', parameters('prefix'))]",
+      "[format('{0}-pgb-2', parameters('prefix'))]"
+    ],
+    "pgbVmIps": [ "10.50.1.7", "10.50.1.8" ],
+    "cloudInit": "[base64(loadFile('cloudinit/cloud-init.yaml'))]",
+    "pgbCloudInit": "[base64(loadFile('cloudinit/pgbouncer-cloud-init.yaml'))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2023-11-01",
+      "name": "[variables('vnetName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "addressSpace": { "addressPrefixes": [ "[parameters('addressPrefix')]" ] },
+        "subnets": [ { "name": "[variables('subnetName')]", "properties": { "addressPrefix": "[parameters('subnetPrefix')]" } } ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2023-11-01",
+      "name": "[variables('nsgName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          { "name": "ssh", "properties": { "priority": 100, "access": "Allow", "protocol": "Tcp", "direction": "Inbound", "sourceAddressPrefix": "*", "sourcePortRange": "*", "destinationAddressPrefix": "*", "destinationPortRange": "22" } },
+          { "name": "postgres", "properties": { "priority": 110, "access": "Allow", "protocol": "Tcp", "direction": "Inbound", "sourceAddressPrefix": "10.50.0.0/16", "sourcePortRange": "*", "destinationAddressPrefix": "*", "destinationPortRange": "5432" } },
+          { "name": "pgbouncer", "properties": { "priority": 115, "access": "Allow", "protocol": "Tcp", "direction": "Inbound", "sourceAddressPrefix": "10.50.0.0/16", "sourcePortRange": "*", "destinationAddressPrefix": "*", "destinationPortRange": "6432" } },
+          { "name": "patroni", "properties": { "priority": 120, "access": "Allow", "protocol": "Tcp", "direction": "Inbound", "sourceAddressPrefix": "10.50.0.0/16", "sourcePortRange": "*", "destinationAddressPrefix": "*", "destinationPortRange": "8008" } },
+          { "name": "etcd", "properties": { "priority": 130, "access": "Allow", "protocol": "Tcp", "direction": "Inbound", "sourceAddressPrefix": "10.50.0.0/16", "sourcePortRange": "*", "destinationAddressPrefix": "*", "destinationPortRange": "2379-2380" } }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/loadBalancers",
+      "apiVersion": "2023-11-01",
+      "name": "[variables('ilbName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "frontendIPConfigurations": [ { "name": "fe", "properties": { "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]" }, "privateIPAllocationMethod": "Static", "privateIPAddress": "[parameters('lbPrivateIP')]" } } ],
+        "backendAddressPools": [ { "name": "[variables('bePoolName')]" } ],
+        "probes": [ { "name": "[variables('probeName')]", "properties": { "protocol": "Http", "port": 8008, "requestPath": "/primary", "intervalInSeconds": 5, "numberOfProbes": 2 } } ],
+        "loadBalancingRules": [ { "name": "[variables('lbruleName')]", "properties": { "frontendIPConfiguration": { "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('ilbName'), 'fe')]" }, "backendAddressPool": { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('ilbName'), variables('bePoolName'))]" }, "protocol": "Tcp", "frontendPort": 5432, "backendPort": 5432, "enableFloatingIP": false, "idleTimeoutInMinutes": 30, "probe": { "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('ilbName'), variables('probeName'))]" } } } ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-11-01",
+      "name": "[format('{0}-elb-pip', parameters('prefix'))]",
+      "location": "[parameters('location')]",
+      "sku": { "name": "Standard" },
+      "properties": { "publicIPAllocationMethod": "Static" },
+      "condition": "[parameters('enablePublicLB')]"
+    },
+    {
+      "type": "Microsoft.Network/loadBalancers",
+      "apiVersion": "2023-11-01",
+      "name": "[variables('elbName')]",
+      "location": "[parameters('location')]",
+      "condition": "[parameters('enablePublicLB')]",
+      "properties": {
+        "frontendIPConfigurations": [ { "name": "fe", "properties": { "publicIPAddress": { "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-elb-pip', parameters('prefix')))]" } } } ],
+        "backendAddressPools": [ { "name": "[variables('bePoolName')]" } ],
+        "probes": [ { "name": "[variables('probeName')]", "properties": { "protocol": "Http", "port": 8008, "requestPath": "/primary", "intervalInSeconds": 5, "numberOfProbes": 2 } } ],
+        "loadBalancingRules": [ { "name": "[variables('lbruleName')]", "properties": { "frontendIPConfiguration": { "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('elbName'), 'fe')]" }, "backendAddressPool": { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('ilbName'), variables('bePoolName'))]" }, "protocol": "Tcp", "frontendPort": 5432, "backendPort": 5432, "enableFloatingIP": false, "idleTimeoutInMinutes": 30, "probe": { "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('ilbName'), variables('probeName'))]" } } } ]
+      },
+      "dependsOn": [ "[resourceId('Microsoft.Network/loadBalancers', variables('ilbName'))]" ]
+    },
+    {
+      "type": "Microsoft.Network/loadBalancers",
+      "apiVersion": "2023-11-01",
+      "name": "[variables('pgbIlbName')]",
+      "location": "[parameters('location')]",
+      "condition": "[parameters('enablePgBouncerTier')]",
+      "properties": {
+        "frontendIPConfigurations": [ { "name": "fe", "properties": { "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]" }, "privateIPAllocationMethod": "Static", "privateIPAddress": "[parameters('pgbouncerLbPrivateIP')]" } } ],
+        "backendAddressPools": [ { "name": "[variables('pgbBePoolName')]" } ],
+        "probes": [ { "name": "[variables('pgbProbeName')]", "properties": { "protocol": "Tcp", "port": 6432, "intervalInSeconds": 5, "numberOfProbes": 2 } } ],
+        "loadBalancingRules": [ { "name": "[variables('pgbRuleName')]", "properties": { "frontendIPConfiguration": { "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('pgbIlbName'), 'fe')]" }, "backendAddressPool": { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('pgbIlbName'), variables('pgbBePoolName'))]" }, "protocol": "Tcp", "frontendPort": 6432, "backendPort": 6432, "enableFloatingIP": false, "idleTimeoutInMinutes": 30, "probe": { "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('pgbIlbName'), variables('pgbProbeName'))]" } } } ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-11-01",
+      "name": "[format('{0}-nic', variables('vmNames')[copyIndex()])]",
+      "location": "[parameters('location')]",
+      "copy": { "name": "nicLoop", "count": 3 },
+      "properties": {
+        "ipConfigurations": [ { "name": "ipconfig1", "properties": { "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]" }, "privateIPAllocationMethod": "Static", "privateIPAddress": "[variables('vmIps')[copyIndex()]]", "loadBalancerBackendAddressPools": [ { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('ilbName'), variables('bePoolName'))]" } ] } } ],
+        "networkSecurityGroup": { "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]" }
+      }
+    },
+    {
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2023-11-01",
+      "name": "[format('{0}-nic', variables('pgbVmNames')[copyIndex()])]",
+      "location": "[parameters('location')]",
+      "condition": "[parameters('enablePgBouncerTier')]",
+      "copy": { "name": "pgbNicLoop", "count": 2 },
+      "properties": {
+        "ipConfigurations": [ { "name": "ipconfig1", "properties": { "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]" }, "privateIPAllocationMethod": "Static", "privateIPAddress": "[variables('pgbVmIps')[copyIndex()]]", "loadBalancerBackendAddressPools": [ { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('pgbIlbName'), variables('pgbBePoolName'))]" } ] } } ],
+        "networkSecurityGroup": { "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]" }
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('vmNames')[copyIndex()]]",
+      "location": "[parameters('location')]",
+      "zones": "[array(parameters('zones'))[copyIndex()]]",
+      "copy": { "name": "vmLoop", "count": 3 },
+      "properties": {
+        "hardwareProfile": { "vmSize": "[parameters('vmSize')]" },
+        "osProfile": {
+          "computerName": "[variables('vmNames')[copyIndex()]]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "linuxConfiguration": { "disablePasswordAuthentication": true, "ssh": { "publicKeys": [ { "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]", "keyData": "[parameters('adminSshPubKey')]" } ] } },
+          "customData": "[variables('cloudInit')]"
+        },
+        "storageProfile": {
+          "imageReference": { "publisher": "Canonical", "offer": "0001-com-ubuntu-server-jammy", "sku": "22_04-lts", "version": "latest" },
+          "osDisk": { "createOption": "FromImage", "managedDisk": { "storageAccountType": "Premium_LRS" } },
+          "dataDisks": [ { "lun": 0, "createOption": "Empty", "diskSizeGB": "[parameters('dataDiskSizeGB')]", "managedDisk": { "storageAccountType": "PremiumV2_LRS" } }, { "lun": 1, "createOption": "Empty", "diskSizeGB": "[parameters('walDiskSizeGB')]", "managedDisk": { "storageAccountType": "PremiumV2_LRS" } } ]
+        },
+        "networkProfile": { "networkInterfaces": [ { "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('vmNames')[copyIndex()]))]" } ] }
+      }
+    },
+    {
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2024-03-01",
+      "name": "[variables('pgbVmNames')[copyIndex()]]",
+      "location": "[parameters('location')]",
+      "zones": "[array(parameters('zones'))[copyIndex()]]",
+      "condition": "[parameters('enablePgBouncerTier')]",
+      "copy": { "name": "pgbVmLoop", "count": 2 },
+      "properties": {
+        "hardwareProfile": { "vmSize": "Standard_D2s_v5" },
+        "osProfile": {
+          "computerName": "[variables('pgbVmNames')[copyIndex()]]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "linuxConfiguration": { "disablePasswordAuthentication": true, "ssh": { "publicKeys": [ { "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]", "keyData": "[parameters('adminSshPubKey')]" } ] } },
+          "customData": "[variables('pgbCloudInit')]"
+        },
+        "storageProfile": {
+          "imageReference": { "publisher": "Canonical", "offer": "0001-com-ubuntu-server-jammy", "sku": "22_04-lts", "version": "latest" },
+          "osDisk": { "createOption": "FromImage", "managedDisk": { "storageAccountType": "Premium_LRS" } }
+        },
+        "networkProfile": { "networkInterfaces": [ { "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('pgbVmNames')[copyIndex()]))]" } ] }
+      }
+    }
+  ],
+  "outputs": {
+    "dbIlbIP": { "type": "string", "value": "[reference(resourceId('Microsoft.Network/loadBalancers', variables('ilbName'))).frontendIPConfigurations[0].properties.privateIPAddress]" },
+    "elbIP": { "type": "string", "value": "[if(parameters('enablePublicLB'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-elb-pip', parameters('prefix')))).ipAddress, 'disabled')]" },
+    "pgbIlbIP": { "type": "string", "value": "[if(parameters('enablePgBouncerTier'), reference(resourceId('Microsoft.Network/loadBalancers', variables('pgbIlbName'))).frontendIPConfigurations[0].properties.privateIPAddress, 'disabled')]" }
+  }
+}
