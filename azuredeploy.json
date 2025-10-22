@@ -44,7 +44,7 @@
     },
     "prefix": { "type": "string", "defaultValue": "pgpatroni" },
     "adminUsername": { "type": "string", "defaultValue": "azureuser" },
-    "adminSshPubKey": { "type": "string", "defaultValue": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIJl3dIeudZqdq6QcG8G3gSa3OKp9q2BZ8X7L9K2mN3pQ azureuser@azure" },
+    "adminPassword": { "type": "secureString", "defaultValue": "Azure123!@#" },
     "vmSize": { "type": "string", "defaultValue": "Standard_D8s_v5" },
     "dataDiskSizeGB": { "type": "int", "defaultValue": 1024 },
     "walDiskSizeGB": { "type": "int", "defaultValue": 512 },
@@ -198,7 +198,8 @@
         "osProfile": {
           "computerName": "[variables('vmNames')[copyIndex()]]",
           "adminUsername": "[parameters('adminUsername')]",
-          "linuxConfiguration": { "disablePasswordAuthentication": true, "ssh": { "publicKeys": [ { "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]", "keyData": "[parameters('adminSshPubKey')]" } ] } },
+          "adminPassword": "[parameters('adminPassword')]",
+          "linuxConfiguration": { "disablePasswordAuthentication": false },
           "customData": "[variables('cloudInit')]"
         },
         "storageProfile": {
@@ -222,7 +223,8 @@
         "osProfile": {
           "computerName": "[variables('pgbVmNames')[copyIndex()]]",
           "adminUsername": "[parameters('adminUsername')]",
-          "linuxConfiguration": { "disablePasswordAuthentication": true, "ssh": { "publicKeys": [ { "path": "[format('/home/{0}/.ssh/authorized_keys', parameters('adminUsername'))]", "keyData": "[parameters('adminSshPubKey')]" } ] } },
+          "adminPassword": "[parameters('adminPassword')]",
+          "linuxConfiguration": { "disablePasswordAuthentication": false },
           "customData": "[variables('pgbCloudInit')]"
         },
         "storageProfile": {
