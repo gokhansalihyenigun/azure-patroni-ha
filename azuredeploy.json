@@ -127,7 +127,10 @@
         "backendAddressPools": [ { "name": "[variables('bePoolName')]" } ],
         "probes": [ { "name": "[variables('probeName')]", "properties": { "protocol": "Http", "port": 8008, "requestPath": "/primary", "intervalInSeconds": 5, "numberOfProbes": 2 } } ],
         "loadBalancingRules": [ { "name": "[variables('lbruleName')]", "properties": { "frontendIPConfiguration": { "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('ilbName'), 'fe')]" }, "backendAddressPool": { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('ilbName'), variables('bePoolName'))]" }, "protocol": "Tcp", "frontendPort": 5432, "backendPort": 5432, "enableFloatingIP": false, "idleTimeoutInMinutes": 30, "probe": { "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('ilbName'), variables('probeName'))]" } } } ]
-      }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
     },
     {
       "type": "Microsoft.Network/publicIPAddresses",
@@ -165,7 +168,10 @@
         "backendAddressPools": [ { "name": "[variables('pgbBePoolName')]" } ],
         "probes": [ { "name": "[variables('pgbProbeName')]", "properties": { "protocol": "Tcp", "port": 6432, "intervalInSeconds": 5, "numberOfProbes": 2 } } ],
         "loadBalancingRules": [ { "name": "[variables('pgbRuleName')]", "properties": { "frontendIPConfiguration": { "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('pgbIlbName'), 'fe')]" }, "backendAddressPool": { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('pgbIlbName'), variables('pgbBePoolName'))]" }, "protocol": "Tcp", "frontendPort": 6432, "backendPort": 6432, "enableFloatingIP": false, "idleTimeoutInMinutes": 30, "probe": { "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('pgbIlbName'), variables('pgbProbeName'))]" } } } ]
-      }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
+      ]
     },
     {
       "type": "Microsoft.Network/networkInterfaces",
@@ -176,7 +182,12 @@
       "properties": {
         "ipConfigurations": [ { "name": "ipconfig1", "properties": { "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]" }, "privateIPAllocationMethod": "Static", "privateIPAddress": "[variables('vmIps')[copyIndex()]]", "loadBalancerBackendAddressPools": [ { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('ilbName'), variables('bePoolName'))]" } ] } } ],
         "networkSecurityGroup": { "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]" }
-      }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]",
+        "[resourceId('Microsoft.Network/loadBalancers', variables('ilbName'))]"
+      ]
     },
     {
       "type": "Microsoft.Network/networkInterfaces",
@@ -188,7 +199,12 @@
       "properties": {
         "ipConfigurations": [ { "name": "ipconfig1", "properties": { "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]" }, "privateIPAllocationMethod": "Static", "privateIPAddress": "[variables('pgbVmIps')[copyIndex()]]", "loadBalancerBackendAddressPools": [ { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('pgbIlbName'), variables('pgbBePoolName'))]" } ] } } ],
         "networkSecurityGroup": { "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]" }
-      }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]",
+        "[resourceId('Microsoft.Network/loadBalancers', variables('pgbIlbName'))]"
+      ]
     },
     {
       "type": "Microsoft.Compute/virtualMachines",
@@ -212,7 +228,10 @@
           "dataDisks": [ { "lun": 0, "createOption": "Empty", "diskSizeGB": "[parameters('dataDiskSizeGB')]", "managedDisk": { "storageAccountType": "PremiumV2_LRS" } }, { "lun": 1, "createOption": "Empty", "diskSizeGB": "[parameters('walDiskSizeGB')]", "managedDisk": { "storageAccountType": "PremiumV2_LRS" } } ]
         },
         "networkProfile": { "networkInterfaces": [ { "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('vmNames')[copyIndex()]))]" } ] }
-      }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('vmNames')[copyIndex()]))]"
+      ]
     },
     {
       "type": "Microsoft.Compute/virtualMachines",
@@ -236,7 +255,10 @@
           "osDisk": { "createOption": "FromImage", "managedDisk": { "storageAccountType": "Premium_LRS" } }
         },
         "networkProfile": { "networkInterfaces": [ { "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('pgbVmNames')[copyIndex()]))]" } ] }
-      }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('pgbVmNames')[copyIndex()]))]"
+      ]
     }
   ],
   "outputs": {
