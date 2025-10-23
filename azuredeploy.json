@@ -195,7 +195,7 @@
       "apiVersion": "2024-03-01",
       "name": "[variables('vmNames')[copyIndex()]]",
       "location": "[parameters('region')]",
-      "zones": "[variables('vmZones')[copyIndex()]]",
+      "zones": [ "[variables('vmZones')[copyIndex()]]" ],
       "copy": { "name": "vmLoop", "count": 3 },
       "properties": {
         "hardwareProfile": { "vmSize": "[parameters('vmSize')]" },
@@ -219,7 +219,7 @@
       "apiVersion": "2024-03-01",
       "name": "[variables('pgbVmNames')[copyIndex()]]",
       "location": "[parameters('region')]",
-      "zones": "[variables('pgbVmZones')[copyIndex()]]",
+      "zones": [ "[variables('pgbVmZones')[copyIndex()]]" ],
       "condition": "[parameters('enablePgBouncerTier')]",
       "copy": { "name": "pgbVmLoop", "count": 2 },
       "properties": {
