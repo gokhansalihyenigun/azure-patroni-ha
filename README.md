@@ -53,7 +53,39 @@ Azure Patroni HA, Active-Passive with ILB and optional ELB, plus PgBouncer tier
 - Apps connect to PgBouncer ILB 6432
 - Admin, ETL, replication connect to DB ILB 5432
 
-## Post deploy checks
+## Automated Testing
 
-- psql -h <PGBOUNCER_ILB_IP> -p 6432 -U postgres -d postgres -c "select now()"
-- psql -h <DB_ILB_IP> -p 5432 -U postgres -d postgres -c "select now()"
+After deployment, SSH into any database VM and run the comprehensive test suite:
+
+```bash
+# Download and run the test script
+curl -o test.sh https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha/main/scripts/test-deployment.sh
+chmod +x test.sh
+sudo ./test.sh
+```
+
+The test script validates:
+- ✅ VM connectivity (DB + PgBouncer)
+- ✅ Patroni cluster health (leader + replicas)
+- ✅ PostgreSQL connections (direct + Load Balancer)
+- ✅ PgBouncer functionality
+- ✅ Replication status and lag
+- ✅ etcd cluster health
+- ✅ High availability configuration
+- ✅ Performance benchmarks
+
+## Manual Checks
+
+```bash
+# Connect via PgBouncer
+PGPASSWORD='ChangeMe123Pass' psql -h 10.50.1.11 -p 6432 -U postgres -d postgres -c "SELECT now();"
+
+# Connect directly to database
+PGPASSWORD='ChangeMe123Pass' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -c "SELECT version();"
+
+# Check Patroni cluster status
+curl -s http://10.50.1.4:8008/cluster | jq
+
+# Check etcd cluster
+ETCDCTL_API=3 etcdctl --endpoints=http://10.50.1.4:2379,http://10.50.1.5:2379 member list
+```
