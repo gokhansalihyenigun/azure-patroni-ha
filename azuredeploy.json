@@ -2,12 +2,12 @@
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "region": { 
-      "type": "string", 
+    "region": {
+      "type": "string",
       "defaultValue": "Germany West Central",
       "allowedValues": [
         "Germany West Central",
-        "West Europe", 
+        "West Europe",
         "North Europe",
         "East US",
         "West US 2",
@@ -42,9 +42,18 @@
         "West India"
       ]
     },
-    "prefix": { "type": "string", "defaultValue": "pgpatroni" },
-    "adminUsername": { "type": "string", "defaultValue": "azureuser" },
-    "adminPassword": { "type": "secureString", "defaultValue": "Azure123!@#" },
+    "prefix": {
+      "type": "string",
+      "defaultValue": "pgpatroni"
+    },
+    "adminUsername": {
+      "type": "string",
+      "defaultValue": "azureuser"
+    },
+    "adminPassword": {
+      "type": "secureString",
+      "defaultValue": "Azure123!@#"
+    },
     "vmSize": {
       "type": "string",
       "defaultValue": "Standard_D4s_v5",
@@ -63,13 +72,22 @@
     "numberOfNodes": {
       "type": "int",
       "defaultValue": 2,
-      "allowedValues": [ 2, 3 ],
+      "allowedValues": [
+        2,
+        3
+      ],
       "metadata": {
         "description": "Number of database nodes (2 or 3)"
       }
     },
-    "dataDiskSizeGB": { "type": "int", "defaultValue": 1024 },
-    "walDiskSizeGB": { "type": "int", "defaultValue": 512 },
+    "dataDiskSizeGB": {
+      "type": "int",
+      "defaultValue": 1024
+    },
+    "walDiskSizeGB": {
+      "type": "int",
+      "defaultValue": 512
+    },
     "diskSku": {
       "type": "string",
       "defaultValue": "Premium_LRS",
@@ -84,18 +102,54 @@
         "description": "Managed disk SKU"
       }
     },
-    "addressPrefix": { "type": "string", "defaultValue": "10.50.0.0/16" },
-    "subnetPrefix": { "type": "string", "defaultValue": "10.50.1.0/24" },
-    "lbPrivateIP": { "type": "string", "defaultValue": "10.50.1.10" },
-    "postgresPassword": { "type": "secureString", "defaultValue": "ChangeMe123!" },
-    "replicatorPassword": { "type": "secureString", "defaultValue": "ChangeMe123!" },
-    "enablePublicLB": { "type": "bool", "defaultValue": false },
-    "enablePgBouncerTier": { "type": "bool", "defaultValue": true },
-    "pgbouncerLbPrivateIP": { "type": "string", "defaultValue": "10.50.1.11" },
-    "pgbouncerDefaultPool": { "type": "int", "defaultValue": 200 },
-    "pgbouncerMaxClientConn": { "type": "int", "defaultValue": 2000 },
-    "pgbouncerAdminUser": { "type": "string", "defaultValue": "pgbouncer" },
-    "pgbouncerAdminPass": { "type": "secureString", "defaultValue": "StrongPass123!" }
+    "addressPrefix": {
+      "type": "string",
+      "defaultValue": "10.50.0.0/16"
+    },
+    "subnetPrefix": {
+      "type": "string",
+      "defaultValue": "10.50.1.0/24"
+    },
+    "lbPrivateIP": {
+      "type": "string",
+      "defaultValue": "10.50.1.10"
+    },
+    "postgresPassword": {
+      "type": "secureString",
+      "defaultValue": "ChangeMe123!"
+    },
+    "replicatorPassword": {
+      "type": "secureString",
+      "defaultValue": "ChangeMe123!"
+    },
+    "enablePublicLB": {
+      "type": "bool",
+      "defaultValue": false
+    },
+    "enablePgBouncerTier": {
+      "type": "bool",
+      "defaultValue": true
+    },
+    "pgbouncerLbPrivateIP": {
+      "type": "string",
+      "defaultValue": "10.50.1.11"
+    },
+    "pgbouncerDefaultPool": {
+      "type": "int",
+      "defaultValue": 200
+    },
+    "pgbouncerMaxClientConn": {
+      "type": "int",
+      "defaultValue": 2000
+    },
+    "pgbouncerAdminUser": {
+      "type": "string",
+      "defaultValue": "pgbouncer"
+    },
+    "pgbouncerAdminPass": {
+      "type": "secureString",
+      "defaultValue": "StrongPass123!"
+    }
   },
   "variables": {
     "vnetName": "[format('{0}-vnet', parameters('prefix'))]",
@@ -119,9 +173,15 @@
       "[format('{0}-pgb-1', parameters('prefix'))]",
       "[format('{0}-pgb-2', parameters('prefix'))]"
     ],
-    "pgbVmIps": [ "10.50.1.7", "10.50.1.8" ],
-    "pgbVmZones": [ "1", "3" ],
-    "cloudInitScript": "I2Nsb3VkLWNvbmZpZw0KDQpwYWNrYWdlczoNCiAgLSBqcQ0KICAtIGN1cmwNCiAgLSBnbnVwZw0KICAtIGxzYi1yZWxlYXNlDQogIC0gcHl0aG9uMy1waXANCiAgLSBoYXByb3h5DQogIC0gZXRjZA0KDQpydW5jbWQ6DQogIC0gY3VybCAtZnNTTCBodHRwczovL3d3dy5wb3N0Z3Jlc3FsLm9yZy9tZWRpYS9rZXlzL0FDQ0M0Q0Y4LmFzYyB8IGdwZyAtLWRlYXJtb3IgLW8gL3Vzci9zaGFyZS9rZXlyaW5ncy9wZy5ncGcNCiAgLSBlY2hvICJkZWIgW3NpZ25lZC1ieT0vdXNyL3NoYXJlL2tleXJpbmdzL3BnLmdwZ10gaHR0cDovL2FwdC5wb3N0Z3Jlc3FsLm9yZy9wdWIvcmVwb3MvYXB0ICQobHNiX3JlbGVhc2UgLWNzKS1wZ2RnIG1haW4iID4gL2V0Yy9hcHQvc291cmNlcy5saXN0LmQvcGcubGlzdA0KICAtIGFwdC1nZXQgdXBkYXRlDQogIC0gYXB0LWdldCBpbnN0YWxsIC15IHBvc3RncmVzcWwtMTYgcHl0aG9uMy1wc3ljb3BnMg0KICAtIHN5c2N0bCAtdyB2bS5zd2FwcGluZXNzPTENCiAgLSBzeXNjdGwgLXcgdm0ubWF4X21hcF9jb3VudD0yNjIxNDQNCiAgLSB8DQogICAgRElTS19EQVRBPS9kZXYvZGlzay9henVyZS9zY3NpMS9sdW4wDQogICAgaWYgWyAtYiAiJERJU0tfREFUQSIgXTsgdGhlbg0KICAgICAgcGFydGVkIC1zICR7RElTS19EQVRBfSBta2xhYmVsIGdwdCBta3BhcnQgcHJpbWFyeSBleHQ0IDFNaUIgMTAwJQ0KICAgICAgc2xlZXAgMw0KICAgICAgbWtmcy5leHQ0IC1GICR7RElTS19EQVRBfTENCiAgICAgIG1rZGlyIC1wIC9wZ2RhdGENCiAgICAgIGVjaG8gIiR7RElTS19EQVRBfTEgL3BnZGF0YSBleHQ0IGRlZmF1bHRzLG5vYXRpbWUgMCAyIiA+PiAvZXRjL2ZzdGFiDQogICAgICBtb3VudCAtYQ0KICAgICAgY2hvd24gLVIgcG9zdGdyZXM6cG9zdGdyZXMgL3BnZGF0YQ0KICAgIGZpDQogIC0gfA0KICAgIERJU0tfV0FMPS9kZXYvZGlzay9henVyZS9zY3NpMS9sdW4xDQogICAgaWYgWyAtYiAiJERJU0tfV0FMIiBdOyB0aGVuDQogICAgICBwYXJ0ZWQgLXMgJHtESVNLX1dBTH0gbWtsYWJlbCBncHQgbWtwYXJ0IHByaW1hcnkgZXh0NCAxTWlCIDEwMCUNCiAgICAgIHNsZWVwIDMNCiAgICAgIG1rZnMuZXh0NCAtRiAke0RJU0tfV0FMfTENCiAgICAgIG1rZGlyIC1wIC9wZ3dhbA0KICAgICAgZWNobyAiJHtESVNLX1dBTH0xIC9wZ3dhbCBleHQ0IGRlZmF1bHRzLG5vYXRpbWUgMCAyIiA+PiAvZXRjL2ZzdGFiDQogICAgICBtb3VudCAtYQ0KICAgICAgY2hvd24gLVIgcG9zdGdyZXM6cG9zdGdyZXMgL3Bnd2FsDQogICAgZmkNCiAgLSBzeXN0ZW1jdGwgc3RvcCBwb3N0Z3Jlc3FsDQogIC0gcnN5bmMgLWEgL3Zhci9saWIvcG9zdGdyZXNxbC8xNi9tYWluLyAvcGdkYXRhLyB8fCB0cnVlDQogIC0gc2VkIC1pICJzfF5kYXRhX2RpcmVjdG9yeSA9IC4qfGRhdGFfZGlyZWN0b3J5ID0gJy9wZ2RhdGEnfCIgL2V0Yy9wb3N0Z3Jlc3FsLzE2L21haW4vcG9zdGdyZXNxbC5jb25mDQogIC0gY2hvd24gLVIgcG9zdGdyZXM6cG9zdGdyZXMgL3BnZGF0YSAvcGd3YWwNCiAgLSB8DQogICAgSE9TVE5BTUU9JChob3N0bmFtZSAtcykNCiAgICBJUD0kKGlwIC00IGFkZHIgc2hvdyBkZXYgZXRoMCB8IGF3ayAnL2luZXQgL3twcmludCAkMn0nIHwgY3V0IC1kLyAtZjEpDQogICAgY2F0ID4gL2V0Yy9kZWZhdWx0L2V0Y2QgPDxFVENERU9GDQogICAgRVRDRF9OQU1FPSIke0hPU1ROQU1FfSINCiAgICBFVENEX0lOSVRJQUxfQ0xVU1RFUj0icGdwYXRyb25pLTE9aHR0cDovLzEwLjUwLjEuNDoyMzgwLHBncGF0cm9uaS0yPWh0dHA6Ly8xMC41MC4xLjU6MjM4MCINCiAgICBFVENEX0lOSVRJQUxfQ0xVU1RFUl9TVEFURT0ibmV3Ig0KICAgIEVUQ0RfSU5JVElBTF9BRFZFUlRJU0VfUEVFUl9VUkxTPSJodHRwOi8vJHtJUH06MjM4MCINCiAgICBFVENEX0FEVkVSVElTRV9DTElFTlRfVVJMUz0iaHR0cDovLyR7SVB9OjIzNzkiDQogICAgRVRDRF9MSVNURU5fUEVFUl9VUkxTPSJodHRwOi8vJHtJUH06MjM4MCINCiAgICBFVENEX0xJU1RFTl9DTElFTlRfVVJMUz0iaHR0cDovLyR7SVB9OjIzNzkiDQogICAgRVRDREVPRg0KICAtIHN5c3RlbWN0bCBlbmFibGUgZXRjZA0KICAtIHN5c3RlbWN0bCByZXN0YXJ0IGV0Y2QNCiAgLSBzbGVlcCA1DQogIC0gcGlwMyBpbnN0YWxsIHBhdHJvbmlbZXRjZF0gcmVxdWVzdHMNCiAgLSBta2RpciAtcCAvZXRjL3BhdHJvbmkNCiAgLSB8DQogICAgSE9TVE5BTUU9JChob3N0bmFtZSAtcykNCiAgICBJUD0kKGlwIC00IGFkZHIgc2hvdyBkZXYgZXRoMCB8IGF3ayAnL2luZXQgL3twcmludCAkMn0nIHwgY3V0IC1kLyAtZjEpDQogICAgY2F0ID4gL2V0Yy9wYXRyb25pL3BhdHJvbmkueW1sIDw8UEFUUk9OSUVPRg0KICAgIHNjb3BlOiBwZy1oYQ0KICAgIG5hbWVzcGFjZTogL3NlcnZpY2UvDQogICAgbmFtZTogJHtIT1NUTkFNRX0NCiAgICByZXN0YXBpOg0KICAgICAgbGlzdGVuOiAwLjAuMC4wOjgwMDgNCiAgICAgIGNvbm5lY3RfYWRkcmVzczogJHtJUH06ODAwOA0KICAgIGV0Y2Q6DQogICAgICBob3N0czogMTAuNTAuMS40OjIzNzksMTAuNTAuMS41OjIzNzkNCiAgICBib290c3RyYXA6DQogICAgICBkY3M6DQogICAgICAgIHR0bDogMjANCiAgICAgICAgbG9vcF93YWl0OiA1DQogICAgICAgIHJldHJ5X3RpbWVvdXQ6IDUNCiAgICAgICAgbWF4aW11bV9sYWdfb25fZmFpbG92ZXI6IDEwNDg1NzYNCiAgICAgICAgc3luY2hyb25vdXNfbW9kZTogdHJ1ZQ0KICAgICAgICBzeW5jaHJvbm91c19tb2RlX3N0cmljdDogZmFsc2UNCiAgICAgICAgc3luY2hyb25vdXNfbm9kZV9jb3VudDogMQ0KICAgICAgICBwb3N0Z3Jlc3FsOg0KICAgICAgICAgIHBhcmFtZXRlcnM6DQogICAgICAgICAgICB3YWxfbGV2ZWw6IGxvZ2ljYWwNCiAgICAgICAgICAgIG1heF93YWxfc2VuZGVyczogMjANCiAgICAgICAgICAgIG1heF9yZXBsaWNhdGlvbl9zbG90czogMjANCiAgICAgICAgICAgIHNoYXJlZF9idWZmZXJzOiA0R0INCiAgICAgICAgICAgIGVmZmVjdGl2ZV9jYWNoZV9zaXplOiA4R0INCiAgICAgICAgICAgIG1haW50ZW5hbmNlX3dvcmtfbWVtOiAxR0INCiAgICAgICAgICAgIHdvcmtfbWVtOiA2NE1CDQogICAgICAgICAgICBjaGVja3BvaW50X3RpbWVvdXQ6IDEwbWluDQogICAgICAgICAgICBzeW5jaHJvbm91c19jb21taXQ6IG9uDQogICAgICAgICAgdXNlX3Nsb3RzOiB0cnVlDQogICAgICAgICAgdXNlX3BnX3Jld2luZDogdHJ1ZQ0KICAgICAgaW5pdGRiOg0KICAgICAgICAtIGVuY29kaW5nOiBVVEY4DQogICAgICAgIC0gZGF0YS1jaGVja3N1bXMNCiAgICAgIHBnX2hiYToNCiAgICAgICAgLSBob3N0IHJlcGxpY2F0aW9uIHJlcGxpY2F0b3IgMTAuNTAuMC4wLzE2IG1kNQ0KICAgICAgICAtIGhvc3QgYWxsIGFsbCAxMC41MC4wLjAvMTYgbWQ1DQogICAgICB1c2VyczoNCiAgICAgICAgcmVwbGljYXRvcjoNCiAgICAgICAgICBwYXNzd29yZDogQ2hhbmdlTWUxMjMhDQogICAgICAgICAgb3B0aW9uczoNCiAgICAgICAgICAgIC0gcmVwbGljYXRpb24NCiAgICBwb3N0Z3Jlc3FsOg0KICAgICAgbGlzdGVuOiAwLjAuMC4wOjU0MzINCiAgICAgIGNvbm5lY3RfYWRkcmVzczogJHtJUH06NTQzMg0KICAgICAgZGF0YV9kaXI6IC9wZ2RhdGENCiAgICAgIGJpbl9kaXI6IC91c3IvbGliL3Bvc3RncmVzcWwvMTYvYmluDQogICAgICBwYXJhbWV0ZXJzOiB7fQ0KICAgICAgYXV0aGVudGljYXRpb246DQogICAgICAgIHN1cGVydXNlcjoNCiAgICAgICAgICB1c2VybmFtZTogcG9zdGdyZXMNCiAgICAgICAgICBwYXNzd29yZDogQ2hhbmdlTWUxMjMhDQogICAgICAgIHJlcGxpY2F0aW9uOg0KICAgICAgICAgIHVzZXJuYW1lOiByZXBsaWNhdG9yDQogICAgICAgICAgcGFzc3dvcmQ6IENoYW5nZU1lMTIzIQ0KICAgIHRhZ3M6DQogICAgICBub2ZhaWxvdmVyOiBmYWxzZQ0KICAgICAgbm9sb2FkYmFsYW5jZTogZmFsc2UNCiAgICAgIGNsb25lZnJvbTogZmFsc2UNCiAgICBQQVRST05JRU9GDQogIC0gY2hvd24gcG9zdGdyZXM6cG9zdGdyZXMgL2V0Yy9wYXRyb25pL3BhdHJvbmkueW1sDQogIC0gfA0KICAgIGNhdCA+IC9ldGMvc3lzdGVtZC9zeXN0ZW0vcGF0cm9uaS5zZXJ2aWNlIDw8U0VSVklDRUVPRg0KICAgIFtVbml0XQ0KICAgIERlc2NyaXB0aW9uPVBhdHJvbmkgUG9zdGdyZVNRTCBIQQ0KICAgIEFmdGVyPW5ldHdvcmsudGFyZ2V0DQogICAgW1NlcnZpY2VdDQogICAgVHlwZT1zaW1wbGUNCiAgICBVc2VyPXBvc3RncmVzDQogICAgR3JvdXA9cG9zdGdyZXMNCiAgICBFeGVjU3RhcnQ9L3Vzci9sb2NhbC9iaW4vcGF0cm9uaSAvZXRjL3BhdHJvbmkvcGF0cm9uaS55bWwNCiAgICBSZXN0YXJ0PW9uLWZhaWx1cmUNCiAgICBMaW1pdE5PRklMRT0xMDAwMDANCiAgICBbSW5zdGFsbF0NCiAgICBXYW50ZWRCeT1tdWx0aS11c2VyLnRhcmdldA0KICAgIFNFUlZJQ0VFT0YNCiAgLSBzeXN0ZW1jdGwgZGFlbW9uLXJlbG9hZA0KICAtIHN5c3RlbWN0bCBlbmFibGUgcGF0cm9uaQ0KICAtIHN5c3RlbWN0bCBzdGFydCBwYXRyb25pDQogIC0gfA0KICAgIGNhdCA+IC9ldGMvaGFwcm94eS9oYXByb3h5LmNmZyA8PEhBUFJPWFlFT0YNCiAgICBnbG9iYWwNCiAgICAgICAgbWF4Y29ubiAxMDAwMDANCiAgICBkZWZhdWx0cw0KICAgICAgICBtb2RlIHRjcA0KICAgICAgICB0aW1lb3V0IGNvbm5lY3QgNXMNCiAgICAgICAgdGltZW91dCBjbGllbnQgIDI0aA0KICAgICAgICB0aW1lb3V0IHNlcnZlciAgMjRoDQogICAgZnJvbnRlbmQgcGdfZmUNCiAgICAgICAgYmluZCAqOjU0MzINCiAgICAgICAgZGVmYXVsdF9iYWNrZW5kIHBnX2JlDQogICAgYmFja2VuZCBwZ19iZQ0KICAgICAgICBvcHRpb24gdGNwLWNoZWNrDQogICAgICAgIHRjcC1jaGVjayBjb25uZWN0IHBvcnQgNTQzMg0KICAgICAgICBzZXJ2ZXIgcGcxIDEwLjUwLjEuNDo1NDMyIGNoZWNrDQogICAgICAgIHNlcnZlciBwZzIgMTAuNTAuMS41OjU0MzIgY2hlY2sgYmFja3VwDQogICAgSEFQUk9YWUVPRg0KICAtIHN5c3RlbWN0bCBlbmFibGUgaGFwcm94eQ0KICAtIHN5c3RlbWN0bCByZXN0YXJ0IGhhcHJveHkNCg0K",
+    "pgbVmIps": [
+      "10.50.1.7",
+      "10.50.1.8"
+    ],
+    "pgbVmZones": [
+      "1",
+      "3"
+    ],
+    "cloudInitScript": "I2Nsb3VkLWNvbmZpZw0KDQpwYWNrYWdlczoNCiAgLSBqcQ0KICAtIGN1cmwNCiAgLSBnbnVwZw0KICAtIGxzYi1yZWxlYXNlDQogIC0gcHl0aG9uMy1waXANCiAgLSBoYXByb3h5DQogIC0gZXRjZA0KDQpydW5jbWQ6DQogIC0gY3VybCAtZnNTTCBodHRwczovL3d3dy5wb3N0Z3Jlc3FsLm9yZy9tZWRpYS9rZXlzL0FDQ0M0Q0Y4LmFzYyB8IGdwZyAtLWRlYXJtb3IgLW8gL3Vzci9zaGFyZS9rZXlyaW5ncy9wZy5ncGcNCiAgLSBlY2hvICJkZWIgW3NpZ25lZC1ieT0vdXNyL3NoYXJlL2tleXJpbmdzL3BnLmdwZ10gaHR0cDovL2FwdC5wb3N0Z3Jlc3FsLm9yZy9wdWIvcmVwb3MvYXB0ICQobHNiX3JlbGVhc2UgLWNzKS1wZ2RnIG1haW4iID4gL2V0Yy9hcHQvc291cmNlcy5saXN0LmQvcGcubGlzdA0KICAtIGFwdC1nZXQgdXBkYXRlDQogIC0gYXB0LWdldCBpbnN0YWxsIC15IHBvc3RncmVzcWwtMTYgcHl0aG9uMy1wc3ljb3BnMg0KICAtIHN5c3RlbWN0bCBzdG9wIHBvc3RncmVzcWwNCiAgLSBzeXN0ZW1jdGwgZGlzYWJsZSBwb3N0Z3Jlc3FsDQogIC0gc3lzY3RsIC13IHZtLnN3YXBwaW5lc3M9MQ0KICAtIHN5c2N0bCAtdyB2bS5tYXhfbWFwX2NvdW50PTI2MjE0NA0KICAtIHwNCiAgICBESVNLX0RBVEE9L2Rldi9kaXNrL2F6dXJlL3Njc2kxL2x1bjANCiAgICBpZiBbIC1iICIkRElTS19EQVRBIiBdOyB0aGVuDQogICAgICBwYXJ0ZWQgLXMgJHtESVNLX0RBVEF9IG1rbGFiZWwgZ3B0IG1rcGFydCBwcmltYXJ5IGV4dDQgMU1pQiAxMDAlDQogICAgICBzbGVlcCAzDQogICAgICBta2ZzLmV4dDQgLUYgJHtESVNLX0RBVEF9MQ0KICAgICAgbWtkaXIgLXAgL3BnZGF0YQ0KICAgICAgZWNobyAiJHtESVNLX0RBVEF9MSAvcGdkYXRhIGV4dDQgZGVmYXVsdHMsbm9hdGltZSAwIDIiID4+IC9ldGMvZnN0YWINCiAgICAgIG1vdW50IC1hDQogICAgICBjaG93biAtUiBwb3N0Z3Jlczpwb3N0Z3JlcyAvcGdkYXRhDQogICAgZmkNCiAgLSB8DQogICAgRElTS19XQUw9L2Rldi9kaXNrL2F6dXJlL3Njc2kxL2x1bjENCiAgICBpZiBbIC1iICIkRElTS19XQUwiIF07IHRoZW4NCiAgICAgIHBhcnRlZCAtcyAke0RJU0tfV0FMfSBta2xhYmVsIGdwdCBta3BhcnQgcHJpbWFyeSBleHQ0IDFNaUIgMTAwJQ0KICAgICAgc2xlZXAgMw0KICAgICAgbWtmcy5leHQ0IC1GICR7RElTS19XQUx9MQ0KICAgICAgbWtkaXIgLXAgL3Bnd2FsDQogICAgICBlY2hvICIiJHtESVNLX1dBTH0xIC9wZ3dhbCBleHQ0IGRlZmF1bHRzLG5vYXRpbWUgMCAyIiA+PiAvZXRjL2ZzdGFiDQogICAgICBtb3VudCAtYQ0KICAgICAgY2hvd24gLVIgcG9zdGdyZXM6cG9zdGdyZXMgL3Bnd2FsDQogICAgZmkNCiAgLSB8DQogICAgSE9TVE5BTUU9JChob3N0bmFtZSAtcykNCiAgICBJUD0kKGlwIC00IGFkZHIgc2hvdyBkZXYgZXRoMCB8IGF3ayAnL2luZXQgL3twcmludCAkMn0nIHwgY3V0IC1kLyAtZjEpDQogICAgY2F0ID4gL2V0Yy9kZWZhdWx0L2V0Y2QgPDxFVENERU9GDQogICAgRVRDRF9OQU1FPSIke0hPU1ROQU1FfSINCiAgICBFVENEX0lOSVRJQUxfQ0xVU1RFUj0icGdwYXRyb25pLTE9aHR0cDovLzEwLjUwLjEuNDoyMzgwLHBncGF0cm9uaS0yPWh0dHA6Ly8xMC41MC4xLjU6MjM4MCINCiAgICBFVENEX0lOSVRJQUxfQ0xVU1RFUl9TVEFURT0ibmV3Ig0KICAgIEVUQ0RfSU5JVElBTF9BRFZFUlRJU0VfUEVFUl9VUkxTPSJodHRwOi8vJHtJUH06MjM4MCINCiAgICBFVENEX0FEVkVSVElTRV9DTElFTlRfVVJMUz0iaHR0cDovLyR7SVB9OjIzNzkiDQogICAgRVRDRF9MSVNURU5fUEVFUl9VUkxTPSJodHRwOi8vJHtJUH06MjM4MCINCiAgICBFVENEX0xJU1RFTl9DTElFTlRfVVJMUz0iaHR0cDovLyR7SVB9OjIzNzkiDQogICAgRVRDREVPRg0KICAtIHN5c3RlbWN0bCBlbmFibGUgZXRjZA0KICAtIHN5c3RlbWN0bCByZXN0YXJ0IGV0Y2QNCiAgLSBzbGVlcCAxMA0KICAtIHBpcDMgaW5zdGFsbCBwYXRyb25pW2V0Y2RdIHJlcXVlc3RzDQogIC0gbWtkaXIgLXAgL2V0Yy9wYXRyb25pDQogIC0gfA0KICAgIEhPU1ROQU1FPSQoaG9zdG5hbWUgLXMpDQogICAgSVA9JChpcCAtNCBhZGRyIHNob3cgZGV2IGV0aDAgfCBhd2sgJy9pbmV0IC97cHJpbnQgJDJ9JyB8IGN1dCAtZC8gLWYxKQ0KICAgIGNhdCA+IC9ldGMvcGF0cm9uaS9wYXRyb25pLnltbCA8PFBBVFJPTKLFT0YNCiAgICBzY29wZTogcGctaGENCiAgICBuYW1lc3BhY2U6IC9zZXJ2aWNlLw0KICAgIG5hbWU6ICR7SE9TVE5BTUV9DQogICAgcmVzdGFwaToNCiAgICAgIGxpc3RlbjogMC4wLjAuMDo4MDA4DQogICAgICBjb25uZWN0X2FkZHJlc3M6ICR7SVB9OjgwMDgNCiAgICBldGNkOg0KICAgICAgaG9zdHM6IDEwLjUwLjEuNDoyMzc5LDEwLjUwLjEuNToyMzc5DQogICAgYm9vdHN0cmFwOg0KICAgICAgZGNzOg0KICAgICAgICB0dGw6IDIwDQogICAgICAgIGxvb3Bfd2FpdDogNQ0KICAgICAgICByZXRyeV90aW1lb3V0OiA1DQogICAgICAgIG1heGltdW1fbGFnX29uX2ZhaWxvdmVyOiAxMDQ4NTc2DQogICAgICAgIHN5bmNocm9ub3VzX21vZGU6IHRydWUNCiAgICAgICAgc3luY2hyb25vdXNfbW9kZV9zdHJpY3Q6IGZhbHNlDQogICAgICAgIHN5bmNocm9ub3VzX25vZGVfY291bnQ6IDENCiAgICAgICAgcG9zdGdyZXNxbDoNCiAgICAgICAgICBwYXJhbWV0ZXJzOg0KICAgICAgICAgICAgd2FsX2xldmVsOiBsb2dpY2FsDQogICAgICAgICAgICBtYXhfd2FsX3NlbmRlcnM6IDIwDQogICAgICAgICAgICBtYXhfcmVwbGljYXRpb25fc2xvdHM6IDIwDQogICAgICAgICAgICBzaGFyZWRfYnVmZmVyczogNEdCDQogICAgICAgICAgICBlZmZlY3RpdmVfY2FjaGVfc2l6ZTogOEdCDQogICAgICAgICAgICBtYWludGVuYW5jZV93b3JrX21lbTogMUdCDQogICAgICAgICAgICB3b3JrX21lbTogNjRNQg0KICAgICAgICAgICAgY2hlY2twb2ludF90aW1lb3V0OiAxMG1pbg0KICAgICAgICAgICAgc3luY2hyb25vdXNfY29tbWl0OiBvbg0KICAgICAgICAgIHVzZV9zbG90czogdHJ1ZQ0KICAgICAgICAgIHVzZV9wZ19yZXdpbmQ6IHRydWUNCiAgICAgIGluaXRkYjoNCiAgICAgICAgLSBlbmNvZGluZzogVVRGOA0KICAgICAgICAtIGRhdGEtY2hlY2tzdW1zDQogICAgICBwZ19oYmE6DQogICAgICAgIC0gaG9zdCByZXBsaWNhdGlvbiByZXBsaWNhdG9yIDEwLjUwLjAuMC8xNiBtZDUNCiAgICAgICAgLSBob3N0IGFsbCBhbGwgMTAuNTAuMC4wLzE2IG1kNQ0KICAgICAgdXNlcnM6DQogICAgICAgIHJlcGxpY2F0b3I6DQogICAgICAgICAgcGFzc3dvcmQ6IENoYW5nZU1lMTIzIQ0KICAgICAgICAgIG9wdGlvbnM6DQogICAgICAgICAgICAtIHJlcGxpY2F0aW9uDQogICAgcG9zdGdyZXNxbDoNCiAgICAgIGxpc3RlbjogMC4wLjAuMDo1NDMyDQogICAgICBjb25uZWN0X2FkZHJlc3M6ICR7SVB9OjU0MzINCiAgICAgIGRhdGFfZGlyOiAvcGdkYXRhDQogICAgICBiaW5fZGlyOiAvdXNyL2xpYi9wb3N0Z3Jlc3FsLzE2L2Jpbg0KICAgICAgcGFyYW1ldGVyczoge30NCiAgICAgIGF1dGhlbnRpY2F0aW9uOg0KICAgICAgICBzdXBlcnVzZXI6DQogICAgICAgICAgdXNlcm5hbWU6IHBvc3RncmVzDQogICAgICAgICAgcGFzc3dvcmQ6IENoYW5nZU1lMTIzIQ0KICAgICAgICByZXBsaWNhdGlvbjoNCiAgICAgICAgICB1c2VybmFtZTogcmVwbGljYXRvcg0KICAgICAgICAgIHBhc3N3b3JkOiBDaGFuZ2VNZTEyMyENCiAgICB0YWdzOg0KICAgICAgbm9mYWlsb3ZlcjogZmFsc2UNCiAgICAgIG5vbG9hZGJhbGFuY2U6IGZhbHNlDQogICAgICBjbG9uZWZyb206IGZhbHNlDQogICAgUEFUUk9OSUVPRg0KICAtIGNob3duIHBvc3RncmVzOnBvc3RncmVzIC9ldGMvcGF0cm9uaS9wYXRyb25pLnltbA0KICAtIHwNCiAgICBjYXQgPiAvZXRjL3N5c3RlbWQvc3lzdGVtL3BhdHJvbmkuc2VydmljZSA8PFNFSVZJQ0VFT0YNCiAgICBbVW5pdF0NCiAgICBEZXNjcmlwdGlvbj1QYXRYB25pIFBvc3RncmVTUUwgSEENCiAgICBBZnRlcj1uZXR3b3JrLnRhcmdldA0KDQogICAgW1NlcnZpY2VdDQogICAgVHlwZT1zaW1wbGUNCiAgICBVc2VyPXBvc3RncmVzDQogICAgR3JvdXA9cG9zdGdyZXMNCiAgICBFeGVjU3RhcnQ9L3Vzci9sb2NhbC9iaW4vcGF0cm9uaSAvZXRjL3BhdHJvbmkvcGF0cm9uaS55bWwNCiAgICBSZXN0YXJ0PW9uLWZhaWx1cmUNCiAgICBMaW1pdE5PRklMRT0xMDAwMDANCg0KICAgIFtJbnN0YWxsXQ0KICAgIFdhbnRlZEJ5PW11bHRpLXVzZXIudGFyZ2V0DQogICAgU0VSVklDRUVPRg0KICAtIHN5c3RlbWN0bCBkYWVtb24tcmVsb2FkDQogIC0gc3lzdGVtY3RsIGVuYWJsZSBwYXRyb25pDQogIC0gc3lzdGVtY3RsIHN0YXJ0IHBhdHJvbmkNCiAgLSB8DQogICAgY2F0ID4gL2V0Yy9oYXByb3h5L2hhcHJveHkuY2ZnIDw8SEFQUK9YWUVPRg0KICAgIGdsb2JhbA0KICAgICAgICBtYXhjb25uIDEwMDAwMA0KICAgIGRlZmF1bHRzDQogICAgICAgIG1vZGUgdGNwDQogICAgICAgIHRpbWVvdXQgY29ubmVjdCA1cw0KICAgICAgICB0aW1lb3V0IGNsaWVudCAgMjRoDQogICAgICAgIHRpbWVvdXQgc2VydmVyICAyNGgNCiAgICBmcm9udGVuZCBwZ19mZQ0KICAgICAgICBiaW5kICo6NTQzMg0KICAgICAgICBkZWZhdWx0X2JhY2tlbmQgcGdfYmUNCiAgICBiYWNrZW5kIHBnX2JlDQogICAgICAgIG9wdGlvbiB0Y3AtY2hlY2sNCiAgICAgICAgdGNwLWNoZWNrIGNvbm5lY3QgcG9ydCA1NDMyDQogICAgICAgIHNlcnZlciBwZzEgMTAuNTAuMS40OjU0MzIgY2hlY2sNCiAgICAgICAgc2VydmVyIHBnMiAxMC41MC4xLjU6NTQzMiBjaGVjayBiYWNrdXANCiAgICBIQVBST1hZRU9GDQogIC0gc3lzdGVtY3RsIGVuYWJsZSBoYXByb3h5DQogIC0gc3lzdGVtY3RsIHJlc3RhcnQgaGFwcm94eQ0KDQo=",
     "pgbCloudInitScript": "I2Nsb3VkLWNvbmZpZw0KDQpwYWNrYWdlczoNCiAgLSBwZ2JvdW5jZXINCiAgLSBwb3N0Z3Jlc3FsLWNsaWVudA0KDQpydW5jbWQ6DQogIC0gfA0KICAgIGNhdCA+IC9ldGMvcGdib3VuY2VyL3BnYm91bmNlci5pbmkgPDxQR0JFT0YNCiAgICBbZGF0YWJhc2VzXQ0KICAgIHBvc3RncmVzID0gaG9zdD0xMC41MC4xLjEwIHBvcnQ9NTQzMiBkYm5hbWU9cG9zdGdyZXMNCiAgICAqID0gaG9zdD0xMC41MC4xLjEwIHBvcnQ9NTQzMg0KICAgIFtwZ2JvdW5jZXJdDQogICAgbGlzdGVuX2FkZHIgPSAwLjAuMC4wDQogICAgbGlzdGVuX3BvcnQgPSA2NDMyDQogICAgcG9vbF9tb2RlID0gdHJhbnNhY3Rpb24NCiAgICBkZWZhdWx0X3Bvb2xfc2l6ZSA9IDIwMA0KICAgIG1heF9jbGllbnRfY29ubiA9IDIwMDANCiAgICBpZ25vcmVfc3RhcnR1cF9wYXJhbWV0ZXJzID0gZXh0cmFfZmxvYXRfZGlnaXRzDQogICAgc2VydmVyX3Rsc19zc2xtb2RlID0gcHJlZmVyDQogICAgYXV0aF90eXBlID0gbWQ1DQogICAgYXV0aF9maWxlID0gL2V0Yy9wZ2JvdW5jZXIvdXNlcmxpc3QudHh0DQogICAgYWRtaW5fdXNlcnMgPSBwZ2JvdW5jZXINCiAgICBQR0JFT0YNCiAgLSB8DQogICAgY2F0ID4gL2V0Yy9wZ2JvdW5jZXIvdXNlcmxpc3QudHh0IDw8VVNFUkVPRg0KICAgICJwZ2JvdW5jZXIiICJTdHJvbmdQYXNzMTIzISINCiAgICBVU0VSRU9GDQogIC0gY2hvd24gcGdib3VuY2VyOnBnYm91bmNlciAvZXRjL3BnYm91bmNlci91c2VybGlzdC50eHQNCiAgLSBjaG1vZCA2NDAgL2V0Yy9wZ2JvdW5jZXIvdXNlcmxpc3QudHh0DQogIC0gc3lzdGVtY3RsIGVuYWJsZSBwZ2JvdW5jZXINCiAgLSBzeXN0ZW1jdGwgcmVzdGFydCBwZ2JvdW5jZXINCg0K"
   },
   "resources": [
@@ -130,7 +190,9 @@
       "apiVersion": "2023-11-01",
       "name": "[variables('publicIpName')]",
       "location": "[parameters('region')]",
-      "sku": { "name": "Standard" },
+      "sku": {
+        "name": "Standard"
+      },
       "properties": {
         "publicIPAllocationMethod": "Static",
         "publicIPAddressVersion": "IPv4"
@@ -141,10 +203,14 @@
       "apiVersion": "2023-11-01",
       "name": "[variables('natGatewayName')]",
       "location": "[parameters('region')]",
-      "sku": { "name": "Standard" },
+      "sku": {
+        "name": "Standard"
+      },
       "properties": {
         "publicIpAddresses": [
-          { "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))]" }
+          {
+            "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))]"
+          }
         ],
         "idleTimeoutInMinutes": 4
       },
@@ -158,17 +224,21 @@
       "name": "[variables('vnetName')]",
       "location": "[parameters('region')]",
       "properties": {
-        "addressSpace": { "addressPrefixes": [ "[parameters('addressPrefix')]" ] },
-        "subnets": [ 
-          { 
-            "name": "[variables('subnetName')]", 
-            "properties": { 
+        "addressSpace": {
+          "addressPrefixes": [
+            "[parameters('addressPrefix')]"
+          ]
+        },
+        "subnets": [
+          {
+            "name": "[variables('subnetName')]",
+            "properties": {
               "addressPrefix": "[parameters('subnetPrefix')]",
               "natGateway": {
                 "id": "[resourceId('Microsoft.Network/natGateways', variables('natGatewayName'))]"
               }
-            } 
-          } 
+            }
+          }
         ]
       },
       "dependsOn": [
@@ -182,11 +252,71 @@
       "location": "[parameters('region')]",
       "properties": {
         "securityRules": [
-          { "name": "ssh", "properties": { "priority": 100, "access": "Allow", "protocol": "Tcp", "direction": "Inbound", "sourceAddressPrefix": "*", "sourcePortRange": "*", "destinationAddressPrefix": "*", "destinationPortRange": "22" } },
-          { "name": "postgres", "properties": { "priority": 110, "access": "Allow", "protocol": "Tcp", "direction": "Inbound", "sourceAddressPrefix": "10.50.0.0/16", "sourcePortRange": "*", "destinationAddressPrefix": "*", "destinationPortRange": "5432" } },
-          { "name": "pgbouncer", "properties": { "priority": 115, "access": "Allow", "protocol": "Tcp", "direction": "Inbound", "sourceAddressPrefix": "10.50.0.0/16", "sourcePortRange": "*", "destinationAddressPrefix": "*", "destinationPortRange": "6432" } },
-          { "name": "patroni", "properties": { "priority": 120, "access": "Allow", "protocol": "Tcp", "direction": "Inbound", "sourceAddressPrefix": "10.50.0.0/16", "sourcePortRange": "*", "destinationAddressPrefix": "*", "destinationPortRange": "8008" } },
-          { "name": "etcd", "properties": { "priority": 130, "access": "Allow", "protocol": "Tcp", "direction": "Inbound", "sourceAddressPrefix": "10.50.0.0/16", "sourcePortRange": "*", "destinationAddressPrefix": "*", "destinationPortRange": "2379-2380" } }
+          {
+            "name": "ssh",
+            "properties": {
+              "priority": 100,
+              "access": "Allow",
+              "protocol": "Tcp",
+              "direction": "Inbound",
+              "sourceAddressPrefix": "*",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "22"
+            }
+          },
+          {
+            "name": "postgres",
+            "properties": {
+              "priority": 110,
+              "access": "Allow",
+              "protocol": "Tcp",
+              "direction": "Inbound",
+              "sourceAddressPrefix": "10.50.0.0/16",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "5432"
+            }
+          },
+          {
+            "name": "pgbouncer",
+            "properties": {
+              "priority": 115,
+              "access": "Allow",
+              "protocol": "Tcp",
+              "direction": "Inbound",
+              "sourceAddressPrefix": "10.50.0.0/16",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "6432"
+            }
+          },
+          {
+            "name": "patroni",
+            "properties": {
+              "priority": 120,
+              "access": "Allow",
+              "protocol": "Tcp",
+              "direction": "Inbound",
+              "sourceAddressPrefix": "10.50.0.0/16",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "8008"
+            }
+          },
+          {
+            "name": "etcd",
+            "properties": {
+              "priority": 130,
+              "access": "Allow",
+              "protocol": "Tcp",
+              "direction": "Inbound",
+              "sourceAddressPrefix": "10.50.0.0/16",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "2379-2380"
+            }
+          }
         ]
       }
     },
@@ -195,12 +325,60 @@
       "apiVersion": "2023-11-01",
       "name": "[variables('ilbName')]",
       "location": "[parameters('region')]",
-      "sku": { "name": "Standard" },
+      "sku": {
+        "name": "Standard"
+      },
       "properties": {
-        "frontendIPConfigurations": [ { "name": "fe", "properties": { "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]" }, "privateIPAllocationMethod": "Static", "privateIPAddress": "[parameters('lbPrivateIP')]" } } ],
-        "backendAddressPools": [ { "name": "[variables('bePoolName')]" } ],
-        "probes": [ { "name": "[variables('probeName')]", "properties": { "protocol": "Http", "port": 8008, "requestPath": "/primary", "intervalInSeconds": 5, "numberOfProbes": 2 } } ],
-        "loadBalancingRules": [ { "name": "[variables('lbruleName')]", "properties": { "frontendIPConfiguration": { "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('ilbName'), 'fe')]" }, "backendAddressPool": { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('ilbName'), variables('bePoolName'))]" }, "protocol": "Tcp", "frontendPort": 5432, "backendPort": 5432, "enableFloatingIP": false, "idleTimeoutInMinutes": 30, "probe": { "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('ilbName'), variables('probeName'))]" } } } ]
+        "frontendIPConfigurations": [
+          {
+            "name": "fe",
+            "properties": {
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]"
+              },
+              "privateIPAllocationMethod": "Static",
+              "privateIPAddress": "[parameters('lbPrivateIP')]"
+            }
+          }
+        ],
+        "backendAddressPools": [
+          {
+            "name": "[variables('bePoolName')]"
+          }
+        ],
+        "probes": [
+          {
+            "name": "[variables('probeName')]",
+            "properties": {
+              "protocol": "Http",
+              "port": 8008,
+              "requestPath": "/primary",
+              "intervalInSeconds": 5,
+              "numberOfProbes": 2
+            }
+          }
+        ],
+        "loadBalancingRules": [
+          {
+            "name": "[variables('lbruleName')]",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('ilbName'), 'fe')]"
+              },
+              "backendAddressPool": {
+                "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('ilbName'), variables('bePoolName'))]"
+              },
+              "protocol": "Tcp",
+              "frontendPort": 5432,
+              "backendPort": 5432,
+              "enableFloatingIP": false,
+              "idleTimeoutInMinutes": 30,
+              "probe": {
+                "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('ilbName'), variables('probeName'))]"
+              }
+            }
+          }
+        ]
       },
       "dependsOn": [
         "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
@@ -211,8 +389,12 @@
       "apiVersion": "2023-11-01",
       "name": "[format('{0}-elb-pip', parameters('prefix'))]",
       "location": "[parameters('region')]",
-      "sku": { "name": "Standard" },
-      "properties": { "publicIPAllocationMethod": "Static" },
+      "sku": {
+        "name": "Standard"
+      },
+      "properties": {
+        "publicIPAllocationMethod": "Static"
+      },
       "condition": "[parameters('enablePublicLB')]"
     },
     {
@@ -220,28 +402,123 @@
       "apiVersion": "2023-11-01",
       "name": "[variables('elbName')]",
       "location": "[parameters('region')]",
-      "sku": { "name": "Standard" },
+      "sku": {
+        "name": "Standard"
+      },
       "condition": "[parameters('enablePublicLB')]",
       "properties": {
-        "frontendIPConfigurations": [ { "name": "fe", "properties": { "publicIPAddress": { "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-elb-pip', parameters('prefix')))]" } } } ],
-        "backendAddressPools": [ { "name": "[variables('bePoolName')]" } ],
-        "probes": [ { "name": "[variables('probeName')]", "properties": { "protocol": "Http", "port": 8008, "requestPath": "/primary", "intervalInSeconds": 5, "numberOfProbes": 2 } } ],
-        "loadBalancingRules": [ { "name": "[variables('lbruleName')]", "properties": { "frontendIPConfiguration": { "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('elbName'), 'fe')]" }, "backendAddressPool": { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('ilbName'), variables('bePoolName'))]" }, "protocol": "Tcp", "frontendPort": 5432, "backendPort": 5432, "enableFloatingIP": false, "idleTimeoutInMinutes": 30, "probe": { "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('ilbName'), variables('probeName'))]" } } } ]
+        "frontendIPConfigurations": [
+          {
+            "name": "fe",
+            "properties": {
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses', format('{0}-elb-pip', parameters('prefix')))]"
+              }
+            }
+          }
+        ],
+        "backendAddressPools": [
+          {
+            "name": "[variables('bePoolName')]"
+          }
+        ],
+        "probes": [
+          {
+            "name": "[variables('probeName')]",
+            "properties": {
+              "protocol": "Http",
+              "port": 8008,
+              "requestPath": "/primary",
+              "intervalInSeconds": 5,
+              "numberOfProbes": 2
+            }
+          }
+        ],
+        "loadBalancingRules": [
+          {
+            "name": "[variables('lbruleName')]",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('elbName'), 'fe')]"
+              },
+              "backendAddressPool": {
+                "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('ilbName'), variables('bePoolName'))]"
+              },
+              "protocol": "Tcp",
+              "frontendPort": 5432,
+              "backendPort": 5432,
+              "enableFloatingIP": false,
+              "idleTimeoutInMinutes": 30,
+              "probe": {
+                "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('ilbName'), variables('probeName'))]"
+              }
+            }
+          }
+        ]
       },
-      "dependsOn": [ "[resourceId('Microsoft.Network/loadBalancers', variables('ilbName'))]" ]
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/loadBalancers', variables('ilbName'))]"
+      ]
     },
     {
       "type": "Microsoft.Network/loadBalancers",
       "apiVersion": "2023-11-01",
       "name": "[variables('pgbIlbName')]",
       "location": "[parameters('region')]",
-      "sku": { "name": "Standard" },
+      "sku": {
+        "name": "Standard"
+      },
       "condition": "[parameters('enablePgBouncerTier')]",
       "properties": {
-        "frontendIPConfigurations": [ { "name": "fe", "properties": { "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]" }, "privateIPAllocationMethod": "Static", "privateIPAddress": "[parameters('pgbouncerLbPrivateIP')]" } } ],
-        "backendAddressPools": [ { "name": "[variables('pgbBePoolName')]" } ],
-        "probes": [ { "name": "[variables('pgbProbeName')]", "properties": { "protocol": "Tcp", "port": 6432, "intervalInSeconds": 5, "numberOfProbes": 2 } } ],
-        "loadBalancingRules": [ { "name": "[variables('pgbRuleName')]", "properties": { "frontendIPConfiguration": { "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('pgbIlbName'), 'fe')]" }, "backendAddressPool": { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('pgbIlbName'), variables('pgbBePoolName'))]" }, "protocol": "Tcp", "frontendPort": 6432, "backendPort": 6432, "enableFloatingIP": false, "idleTimeoutInMinutes": 30, "probe": { "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('pgbIlbName'), variables('pgbProbeName'))]" } } } ]
+        "frontendIPConfigurations": [
+          {
+            "name": "fe",
+            "properties": {
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]"
+              },
+              "privateIPAllocationMethod": "Static",
+              "privateIPAddress": "[parameters('pgbouncerLbPrivateIP')]"
+            }
+          }
+        ],
+        "backendAddressPools": [
+          {
+            "name": "[variables('pgbBePoolName')]"
+          }
+        ],
+        "probes": [
+          {
+            "name": "[variables('pgbProbeName')]",
+            "properties": {
+              "protocol": "Tcp",
+              "port": 6432,
+              "intervalInSeconds": 5,
+              "numberOfProbes": 2
+            }
+          }
+        ],
+        "loadBalancingRules": [
+          {
+            "name": "[variables('pgbRuleName')]",
+            "properties": {
+              "frontendIPConfiguration": {
+                "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('pgbIlbName'), 'fe')]"
+              },
+              "backendAddressPool": {
+                "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('pgbIlbName'), variables('pgbBePoolName'))]"
+              },
+              "protocol": "Tcp",
+              "frontendPort": 6432,
+              "backendPort": 6432,
+              "enableFloatingIP": false,
+              "idleTimeoutInMinutes": 30,
+              "probe": {
+                "id": "[resourceId('Microsoft.Network/loadBalancers/probes', variables('pgbIlbName'), variables('pgbProbeName'))]"
+              }
+            }
+          }
+        ]
       },
       "dependsOn": [
         "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]"
@@ -252,10 +529,31 @@
       "apiVersion": "2023-11-01",
       "name": "[format('{0}-nic', variables('vmNames')[copyIndex()])]",
       "location": "[parameters('region')]",
-      "copy": { "name": "nicLoop", "count": "[parameters('numberOfNodes')]" },
+      "copy": {
+        "name": "nicLoop",
+        "count": "[parameters('numberOfNodes')]"
+      },
       "properties": {
-        "ipConfigurations": [ { "name": "ipconfig1", "properties": { "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]" }, "privateIPAllocationMethod": "Static", "privateIPAddress": "[variables('vmIps')[copyIndex()]]", "loadBalancerBackendAddressPools": [ { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('ilbName'), variables('bePoolName'))]" } ] } } ],
-        "networkSecurityGroup": { "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]" }
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]"
+              },
+              "privateIPAllocationMethod": "Static",
+              "privateIPAddress": "[variables('vmIps')[copyIndex()]]",
+              "loadBalancerBackendAddressPools": [
+                {
+                  "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('ilbName'), variables('bePoolName'))]"
+                }
+              ]
+            }
+          }
+        ],
+        "networkSecurityGroup": {
+          "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+        }
       },
       "dependsOn": [
         "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
@@ -269,10 +567,31 @@
       "name": "[format('{0}-nic', variables('pgbVmNames')[copyIndex()])]",
       "location": "[parameters('region')]",
       "condition": "[parameters('enablePgBouncerTier')]",
-      "copy": { "name": "pgbNicLoop", "count": 2 },
+      "copy": {
+        "name": "pgbNicLoop",
+        "count": 2
+      },
       "properties": {
-        "ipConfigurations": [ { "name": "ipconfig1", "properties": { "subnet": { "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]" }, "privateIPAllocationMethod": "Static", "privateIPAddress": "[variables('pgbVmIps')[copyIndex()]]", "loadBalancerBackendAddressPools": [ { "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('pgbIlbName'), variables('pgbBePoolName'))]" } ] } } ],
-        "networkSecurityGroup": { "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]" }
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "subnet": {
+                "id": "[resourceId('Microsoft.Network/virtualNetworks/subnets', variables('vnetName'), variables('subnetName'))]"
+              },
+              "privateIPAllocationMethod": "Static",
+              "privateIPAddress": "[variables('pgbVmIps')[copyIndex()]]",
+              "loadBalancerBackendAddressPools": [
+                {
+                  "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('pgbIlbName'), variables('pgbBePoolName'))]"
+                }
+              ]
+            }
+          }
+        ],
+        "networkSecurityGroup": {
+          "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('nsgName'))]"
+        }
       },
       "dependsOn": [
         "[resourceId('Microsoft.Network/virtualNetworks', variables('vnetName'))]",
@@ -285,23 +604,65 @@
       "apiVersion": "2024-03-01",
       "name": "[variables('vmNames')[copyIndex()]]",
       "location": "[parameters('region')]",
-      "zones": [ "[variables('vmZones')[copyIndex()]]" ],
-      "copy": { "name": "vmLoop", "count": "[parameters('numberOfNodes')]" },
+      "zones": [
+        "[variables('vmZones')[copyIndex()]]"
+      ],
+      "copy": {
+        "name": "vmLoop",
+        "count": "[parameters('numberOfNodes')]"
+      },
       "properties": {
-        "hardwareProfile": { "vmSize": "[parameters('vmSize')]" },
+        "hardwareProfile": {
+          "vmSize": "[parameters('vmSize')]"
+        },
         "osProfile": {
           "computerName": "[variables('vmNames')[copyIndex()]]",
           "adminUsername": "[parameters('adminUsername')]",
           "adminPassword": "[parameters('adminPassword')]",
-          "linuxConfiguration": { "disablePasswordAuthentication": false },
+          "linuxConfiguration": {
+            "disablePasswordAuthentication": false
+          },
           "customData": "[variables('cloudInitScript')]"
         },
         "storageProfile": {
-          "imageReference": { "publisher": "Canonical", "offer": "0001-com-ubuntu-server-jammy", "sku": "22_04-lts", "version": "latest" },
-          "osDisk": { "createOption": "FromImage", "managedDisk": { "storageAccountType": "Premium_LRS" } },
-          "dataDisks": [ { "lun": 0, "createOption": "Empty", "diskSizeGB": "[parameters('dataDiskSizeGB')]", "managedDisk": { "storageAccountType": "[parameters('diskSku')]" } }, { "lun": 1, "createOption": "Empty", "diskSizeGB": "[parameters('walDiskSizeGB')]", "managedDisk": { "storageAccountType": "[parameters('diskSku')]" } } ]
+          "imageReference": {
+            "publisher": "Canonical",
+            "offer": "0001-com-ubuntu-server-jammy",
+            "sku": "22_04-lts",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage",
+            "managedDisk": {
+              "storageAccountType": "Premium_LRS"
+            }
+          },
+          "dataDisks": [
+            {
+              "lun": 0,
+              "createOption": "Empty",
+              "diskSizeGB": "[parameters('dataDiskSizeGB')]",
+              "managedDisk": {
+                "storageAccountType": "[parameters('diskSku')]"
+              }
+            },
+            {
+              "lun": 1,
+              "createOption": "Empty",
+              "diskSizeGB": "[parameters('walDiskSizeGB')]",
+              "managedDisk": {
+                "storageAccountType": "[parameters('diskSku')]"
+              }
+            }
+          ]
         },
-        "networkProfile": { "networkInterfaces": [ { "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('vmNames')[copyIndex()]))]" } ] }
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('vmNames')[copyIndex()]))]"
+            }
+          ]
+        }
       },
       "dependsOn": [
         "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('vmNames')[copyIndex()]))]"
@@ -312,23 +673,48 @@
       "apiVersion": "2024-03-01",
       "name": "[variables('pgbVmNames')[copyIndex()]]",
       "location": "[parameters('region')]",
-      "zones": [ "[variables('pgbVmZones')[copyIndex()]]" ],
+      "zones": [
+        "[variables('pgbVmZones')[copyIndex()]]"
+      ],
       "condition": "[parameters('enablePgBouncerTier')]",
-      "copy": { "name": "pgbVmLoop", "count": 2 },
+      "copy": {
+        "name": "pgbVmLoop",
+        "count": 2
+      },
       "properties": {
-        "hardwareProfile": { "vmSize": "Standard_D2s_v5" },
+        "hardwareProfile": {
+          "vmSize": "Standard_D2s_v5"
+        },
         "osProfile": {
           "computerName": "[variables('pgbVmNames')[copyIndex()]]",
           "adminUsername": "[parameters('adminUsername')]",
           "adminPassword": "[parameters('adminPassword')]",
-          "linuxConfiguration": { "disablePasswordAuthentication": false },
+          "linuxConfiguration": {
+            "disablePasswordAuthentication": false
+          },
           "customData": "[variables('pgbCloudInitScript')]"
         },
         "storageProfile": {
-          "imageReference": { "publisher": "Canonical", "offer": "0001-com-ubuntu-server-jammy", "sku": "22_04-lts", "version": "latest" },
-          "osDisk": { "createOption": "FromImage", "managedDisk": { "storageAccountType": "Premium_LRS" } }
+          "imageReference": {
+            "publisher": "Canonical",
+            "offer": "0001-com-ubuntu-server-jammy",
+            "sku": "22_04-lts",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage",
+            "managedDisk": {
+              "storageAccountType": "Premium_LRS"
+            }
+          }
         },
-        "networkProfile": { "networkInterfaces": [ { "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('pgbVmNames')[copyIndex()]))]" } ] }
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('pgbVmNames')[copyIndex()]))]"
+            }
+          ]
+        }
       },
       "dependsOn": [
         "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('pgbVmNames')[copyIndex()]))]"
@@ -336,8 +722,17 @@
     }
   ],
   "outputs": {
-    "dbIlbIP": { "type": "string", "value": "[reference(resourceId('Microsoft.Network/loadBalancers', variables('ilbName'))).frontendIPConfigurations[0].properties.privateIPAddress]" },
-    "elbIP": { "type": "string", "value": "[if(parameters('enablePublicLB'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-elb-pip', parameters('prefix')))).ipAddress, 'disabled')]" },
-    "pgbIlbIP": { "type": "string", "value": "[if(parameters('enablePgBouncerTier'), reference(resourceId('Microsoft.Network/loadBalancers', variables('pgbIlbName'))).frontendIPConfigurations[0].properties.privateIPAddress, 'disabled')]" }
+    "dbIlbIP": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Network/loadBalancers', variables('ilbName'))).frontendIPConfigurations[0].properties.privateIPAddress]"
+    },
+    "elbIP": {
+      "type": "string",
+      "value": "[if(parameters('enablePublicLB'), reference(resourceId('Microsoft.Network/publicIPAddresses', format('{0}-elb-pip', parameters('prefix')))).ipAddress, 'disabled')]"
+    },
+    "pgbIlbIP": {
+      "type": "string",
+      "value": "[if(parameters('enablePgBouncerTier'), reference(resourceId('Microsoft.Network/loadBalancers', variables('pgbIlbName'))).frontendIPConfigurations[0].properties.privateIPAddress, 'disabled')]"
+    }
   }
 }

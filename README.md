@@ -8,12 +8,15 @@ Azure Patroni HA, Active-Passive with ILB and optional ELB, plus PgBouncer tier
 
 ## What you get
 
-- DB tier, 2 or 3 Patroni nodes (configurable), ILB 5432, probe HTTP 8008 path /primary
-- Optional ELB 5432 for controlled external access
-- PgBouncer tier, 2 VMs across zones, ILB 6432, probe TCP 6432, pool_mode transaction
-- Flexible disk SKU selection (Premium_LRS, Premium_ZRS, StandardSSD_LRS, StandardSSD_ZRS, UltraSSD_LRS)
-- NSG rules scoped to VNet
-- Azure Monitor Agent ready
+- **Fully automated deployment** - Single-click deployment, no manual configuration required
+- **DB tier** - 2 or 3 Patroni nodes (configurable), ILB 5432, probe HTTP 8008 path /primary
+- **Patroni manages PostgreSQL** - No rsync, Patroni initializes cluster from scratch
+- **Optional ELB** - 5432 for controlled external access
+- **PgBouncer tier** - 2 VMs across zones, ILB 6432, probe TCP 6432, pool_mode transaction
+- **Flexible disk SKU** - Premium_LRS, Premium_ZRS, StandardSSD_LRS, StandardSSD_ZRS, UltraSSD_LRS
+- **NSG rules** - Scoped to VNet
+- **NAT Gateway** - For outbound internet access (package installations)
+- **Azure Monitor** - Agent ready
 
 ## Parameters
 
