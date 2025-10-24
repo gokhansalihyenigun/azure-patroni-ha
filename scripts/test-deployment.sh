@@ -3,8 +3,6 @@
 # Azure Patroni HA PostgreSQL - Complete Test Suite
 # This script performs comprehensive testing of the deployment
 
-set -e
-
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
