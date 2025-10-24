@@ -87,8 +87,8 @@
     ],
     "pgbVmIps": [ "10.50.1.7", "10.50.1.8" ],
     "pgbVmZones": [ "1", "2" ],
-    "cloudInitScript": "https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha/main/cloudinit/cloud-init.yaml",
-    "pgbCloudInitScript": "[base64(concat('#cloud-config\npackage_update: true\npackage_upgrade: true\npackages:\n  - pgbouncer\nruncmd:\n  - |\n    IP=$(ip -4 addr show dev eth0 | awk \"/inet /{print $2}\" | cut -d/ -f1)\n    DB_ILB_IP=\"', parameters('lbPrivateIP'), '\"\n    ADMIN_USER=\"', parameters('pgbouncerAdminUser'), '\"\n    ADMIN_PASS=\"', parameters('pgbouncerAdminPass'), '\"\n    DEFAULT_POOL=\"', parameters('pgbouncerDefaultPool'), '\"\n    MAX_CLIENT_CONN=\"', parameters('pgbouncerMaxClientConn'), '\"\n    cat >/etc/pgbouncer/pgbouncer.ini <<EOF\n[databases]\npostgres = host=${DB_ILB_IP} port=5432 dbname=postgres\n* = host=${DB_ILB_IP} port=5432\n[pgbouncer]\nlisten_addr = 0.0.0.0\nlisten_port = 6432\npool_mode = transaction\ndefault_pool_size = ${DEFAULT_POOL}\nmax_client_conn = ${MAX_CLIENT_CONN}\nignore_startup_parameters = extra_float_digits\nserver_tls_sslmode = prefer\nauth_type = scram-sha-256\nauth_file = /etc/pgbouncer/userlist.txt\nadmin_users = ${ADMIN_USER}\nEOF\n    printf \"\\\"%s\\\" \\\"%s\\\"\\n\" ${ADMIN_USER} ${ADMIN_PASS} > /etc/pgbouncer/userlist.txt\n    chown pgbouncer:pgbouncer /etc/pgbouncer/userlist.txt\n    chmod 640 /etc/pgbouncer/userlist.txt\n    systemctl enable pgbouncer\n    systemctl restart pgbouncer'))]"
+    "cloudInitScript": "[base64(string(loadTextContent('cloudinit/cloud-init.yaml')))]",
+    "pgbCloudInitScript": "[base64(string(loadTextContent('cloudinit/pgbouncer-cloud-init.yaml')))]"
   },
   "resources": [
     {
