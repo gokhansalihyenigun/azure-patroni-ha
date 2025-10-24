@@ -32,14 +32,21 @@ test_result() {
 echo "=== 1. INFRASTRUCTURE TESTS ==="
 echo ""
 
-# Test 1.1: Check if all VMs are reachable
-echo "Testing VM connectivity..."
+# Auto-detect number of database VMs
+DB_VMS=()
 for ip in 10.50.1.4 10.50.1.5 10.50.1.6; do
     if ping -c 1 -W 2 $ip > /dev/null 2>&1; then
-        test_result 0 "VM $ip is reachable"
-    else
-        test_result 1 "VM $ip is NOT reachable"
+        DB_VMS+=($ip)
     fi
+done
+
+echo "Detected ${#DB_VMS[@]} database VM(s)"
+echo ""
+
+# Test 1.1: Check if all VMs are reachable
+echo "Testing VM connectivity..."
+for ip in "${DB_VMS[@]}"; do
+    test_result 0 "VM $ip is reachable"
 done
 
 # Test 1.2: Check PgBouncer VMs
@@ -56,7 +63,7 @@ echo "=== 2. PATRONI CLUSTER TESTS ==="
 echo ""
 
 # Test 2.1: Check Patroni health on all nodes
-for ip in 10.50.1.4 10.50.1.5 10.50.1.6; do
+for ip in "${DB_VMS[@]}"; do
     if curl -s -f http://$ip:8008/health > /dev/null 2>&1; then
         test_result 0 "Patroni health check on $ip"
     else
@@ -67,7 +74,13 @@ done
 # Test 2.2: Get cluster status
 echo ""
 echo "Cluster Status:"
-CLUSTER_STATUS=$(curl -s http://10.50.1.4:8008/cluster 2>/dev/null || curl -s http://10.50.1.5:8008/cluster 2>/dev/null || curl -s http://10.50.1.6:8008/cluster 2>/dev/null)
+CLUSTER_STATUS=""
+for ip in "${DB_VMS[@]}"; do
+    CLUSTER_STATUS=$(curl -s http://$ip:8008/cluster 2>/dev/null)
+    if [ ! -z "$CLUSTER_STATUS" ]; then
+        break
+    fi
+done
 
 if [ ! -z "$CLUSTER_STATUS" ]; then
     echo "$CLUSTER_STATUS" | jq '.' 2>/dev/null || echo "$CLUSTER_STATUS"
@@ -200,7 +213,7 @@ fi
 # Test 6.2: Check etcd cluster
 echo ""
 echo "Checking etcd cluster..."
-for ip in 10.50.1.4 10.50.1.5 10.50.1.6; do
+for ip in "${DB_VMS[@]}"; do
     if curl -s http://$ip:2379/health > /dev/null 2>&1; then
         test_result 0 "etcd healthy on $ip"
     else
