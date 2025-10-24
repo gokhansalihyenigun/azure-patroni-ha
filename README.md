@@ -8,10 +8,10 @@ Azure Patroni HA, Active-Passive with ILB and optional ELB, plus PgBouncer tier
 
 ## What you get
 
-- DB tier, Patroni primary, sync standby, witness, ILB 5432, probe HTTP 8008 path /primary
+- DB tier, 2 or 3 Patroni nodes (configurable), ILB 5432, probe HTTP 8008 path /primary
 - Optional ELB 5432 for controlled external access
 - PgBouncer tier, 2 VMs across zones, ILB 6432, probe TCP 6432, pool_mode transaction
-- Premium SSD v2 data and wal disks
+- Flexible disk SKU selection (Premium_LRS, Premium_ZRS, StandardSSD_LRS, StandardSSD_ZRS, UltraSSD_LRS)
 - NSG rules scoped to VNet
 - Azure Monitor Agent ready
 
@@ -21,9 +21,11 @@ Azure Patroni HA, Active-Passive with ILB and optional ELB, plus PgBouncer tier
 - **prefix**: Resource name prefix (default: pgpatroni)
 - **adminUsername**: VM admin username (default: azureuser)
 - **adminPassword**: VM admin password (default: Azure123!@#)
-- **vmSize**: Database VM size (default: Standard_D8s_v5)
+- **vmSize**: Database VM size (dropdown, default: Standard_D4s_v5)
+- **numberOfNodes**: Number of database nodes - 2 or 3 (default: 2)
 - **dataDiskSizeGB**: Data disk size in GB (default: 1024)
 - **walDiskSizeGB**: WAL disk size in GB (default: 512)
+- **diskSku**: Managed disk SKU (dropdown, default: Premium_LRS)
 - **addressPrefix**: VNet address prefix (default: 10.50.0.0/16)
 - **subnetPrefix**: Subnet address prefix (default: 10.50.1.0/24)
 - **lbPrivateIP**: Database load balancer private IP (default: 10.50.1.10)
