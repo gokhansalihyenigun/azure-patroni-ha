@@ -32,15 +32,15 @@ Azure Patroni HA, Active-Passive with ILB and optional ELB, plus PgBouncer tier
 - **addressPrefix**: VNet address prefix (default: 10.50.0.0/16)
 - **subnetPrefix**: Subnet address prefix (default: 10.50.1.0/24)
 - **lbPrivateIP**: Database load balancer private IP (default: 10.50.1.10)
-- **postgresPassword**: PostgreSQL superuser password (default: ChangeMe123!)
-- **replicatorPassword**: PostgreSQL replicator password (default: ChangeMe123!)
+- **postgresPassword**: PostgreSQL superuser password (default: ChangeMe123Pass)
+- **replicatorPassword**: PostgreSQL replicator password (default: ChangeMe123Pass)
 - **enablePublicLB**: Enable public load balancer (default: false)
 - **enablePgBouncerTier**: Enable PgBouncer tier (default: true)
 - **pgbouncerLbPrivateIP**: PgBouncer load balancer private IP (default: 10.50.1.11)
 - **pgbouncerDefaultPool**: PgBouncer default pool size (default: 200)
 - **pgbouncerMaxClientConn**: PgBouncer max client connections (default: 2000)
 - **pgbouncerAdminUser**: PgBouncer admin user (default: pgbouncer)
-- **pgbouncerAdminPass**: PgBouncer admin password (default: StrongPass123!)
+- **pgbouncerAdminPass**: PgBouncer admin password (default: StrongPass123)
 
 ## How to deploy
 

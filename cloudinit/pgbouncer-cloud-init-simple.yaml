@@ -24,7 +24,7 @@ runcmd:
     PGBEOF
   - |
     cat > /etc/pgbouncer/userlist.txt <<USEREOF
-    "pgbouncer" "StrongPass123!"
+    "pgbouncer" "StrongPass123"
     USEREOF
   - chown pgbouncer:pgbouncer /etc/pgbouncer/userlist.txt
   - chmod 640 /etc/pgbouncer/userlist.txt
