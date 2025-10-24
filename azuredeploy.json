@@ -45,7 +45,21 @@
     "prefix": { "type": "string", "defaultValue": "pgpatroni" },
     "adminUsername": { "type": "string", "defaultValue": "azureuser" },
     "adminPassword": { "type": "secureString", "defaultValue": "Azure123!@#" },
-    "vmSize": { "type": "string", "defaultValue": "Standard_D8s_v5" },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_D4s_v5",
+      "allowedValues": [
+        "Standard_D2s_v5",
+        "Standard_D4s_v5",
+        "Standard_D8s_v5",
+        "Standard_D16s_v5",
+        "Standard_E4s_v5",
+        "Standard_E8s_v5"
+      ],
+      "metadata": {
+        "description": "Size of the database VMs"
+      }
+    },
     "dataDiskSizeGB": { "type": "int", "defaultValue": 1024 },
     "walDiskSizeGB": { "type": "int", "defaultValue": 512 },
     "addressPrefix": { "type": "string", "defaultValue": "10.50.0.0/16" },
@@ -225,7 +239,7 @@
         "storageProfile": {
           "imageReference": { "publisher": "Canonical", "offer": "0001-com-ubuntu-server-jammy", "sku": "22_04-lts", "version": "latest" },
           "osDisk": { "createOption": "FromImage", "managedDisk": { "storageAccountType": "Premium_LRS" } },
-          "dataDisks": [ { "lun": 0, "createOption": "Empty", "diskSizeGB": "[parameters('dataDiskSizeGB')]", "managedDisk": { "storageAccountType": "PremiumV2_LRS" } }, { "lun": 1, "createOption": "Empty", "diskSizeGB": "[parameters('walDiskSizeGB')]", "managedDisk": { "storageAccountType": "PremiumV2_LRS" } } ]
+          "dataDisks": [ { "lun": 0, "createOption": "Empty", "diskSizeGB": "[parameters('dataDiskSizeGB')]", "managedDisk": { "storageAccountType": "Premium_LRS" } }, { "lun": 1, "createOption": "Empty", "diskSizeGB": "[parameters('walDiskSizeGB')]", "managedDisk": { "storageAccountType": "Premium_LRS" } } ]
         },
         "networkProfile": { "networkInterfaces": [ { "id": "[resourceId('Microsoft.Network/networkInterfaces', format('{0}-nic', variables('vmNames')[copyIndex()]))]" } ] }
       },
