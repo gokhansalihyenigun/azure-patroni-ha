@@ -108,18 +108,18 @@ echo "=== 3. POSTGRESQL CONNECTION TESTS ==="
 echo ""
 
 # Test 3.1: Direct connection to database load balancer
-if PGPASSWORD='ChangeMe123!' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -c "SELECT version();" > /dev/null 2>&1; then
+if PGPASSWORD='ChangeMe123Pass' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -c "SELECT version();" > /dev/null 2>&1; then
     test_result 0 "Direct PostgreSQL connection (Load Balancer)"
     
     # Get PostgreSQL version
-    PG_VERSION=$(PGPASSWORD='ChangeMe123!' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -t -c "SELECT version();" 2>/dev/null | head -1)
+    PG_VERSION=$(PGPASSWORD='ChangeMe123Pass' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -t -c "SELECT version();" 2>/dev/null | head -1)
     echo "   PostgreSQL Version: $PG_VERSION"
 else
     test_result 1 "Direct PostgreSQL connection (Load Balancer)"
 fi
 
 # Test 3.2: PgBouncer connection
-if PGPASSWORD='ChangeMe123!' psql -h 10.50.1.11 -p 6432 -U postgres -d postgres -c "SELECT now();" > /dev/null 2>&1; then
+if PGPASSWORD='ChangeMe123Pass' psql -h 10.50.1.11 -p 6432 -U postgres -d postgres -c "SELECT now();" > /dev/null 2>&1; then
     test_result 0 "PgBouncer connection (Load Balancer)"
 else
     test_result 1 "PgBouncer connection (Load Balancer)"
@@ -130,7 +130,7 @@ echo "=== 4. REPLICATION TESTS ==="
 echo ""
 
 # Test 4.1: Check replication status
-REP_STATUS=$(PGPASSWORD='ChangeMe123!' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -t -c "SELECT count(*) FROM pg_stat_replication;" 2>/dev/null | tr -d ' ')
+REP_STATUS=$(PGPASSWORD='ChangeMe123Pass' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -t -c "SELECT count(*) FROM pg_stat_replication;" 2>/dev/null | tr -d ' ')
 
 if [ "$REP_STATUS" -ge 1 ]; then
     test_result 0 "Replication active ($REP_STATUS replica(s))"
@@ -138,7 +138,7 @@ if [ "$REP_STATUS" -ge 1 ]; then
     # Get replication lag
     echo ""
     echo "Replication Status:"
-    PGPASSWORD='ChangeMe123!' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -c "SELECT client_addr, state, sync_state, replay_lag FROM pg_stat_replication;" 2>/dev/null
+    PGPASSWORD='ChangeMe123Pass' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -c "SELECT client_addr, state, sync_state, replay_lag FROM pg_stat_replication;" 2>/dev/null
 else
     test_result 1 "No active replication"
 fi
@@ -148,7 +148,7 @@ echo ""
 echo "Testing data replication..."
 
 # Create test table and insert data
-PGPASSWORD='ChangeMe123!' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres > /dev/null 2>&1 <<EOF
+PGPASSWORD='ChangeMe123Pass' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres > /dev/null 2>&1 <<EOF
 DROP TABLE IF EXISTS ha_test;
 CREATE TABLE ha_test (id SERIAL PRIMARY KEY, test_time TIMESTAMP DEFAULT NOW(), test_data TEXT);
 INSERT INTO ha_test (test_data) VALUES ('Replication test data');
@@ -161,7 +161,7 @@ if [ $? -eq 0 ]; then
     sleep 2
     
     # Check if data exists (it should be on primary)
-    TEST_COUNT=$(PGPASSWORD='ChangeMe123!' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -t -c "SELECT count(*) FROM ha_test;" 2>/dev/null | tr -d ' ')
+    TEST_COUNT=$(PGPASSWORD='ChangeMe123Pass' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -t -c "SELECT count(*) FROM ha_test;" 2>/dev/null | tr -d ' ')
     
     if [ "$TEST_COUNT" -eq 1 ]; then
         test_result 0 "Test data verified on primary"
@@ -179,7 +179,7 @@ echo ""
 # Test 5.1: Simple benchmark
 echo "Running simple performance test (100 transactions)..."
 if command -v pgbench > /dev/null 2>&1; then
-    PGPASSWORD='ChangeMe123!' pgbench -h 10.50.1.11 -p 6432 -U postgres -c 5 -j 2 -t 20 postgres > /tmp/pgbench.log 2>&1
+    PGPASSWORD='ChangeMe123Pass' pgbench -h 10.50.1.11 -p 6432 -U postgres -c 5 -j 2 -t 20 postgres > /tmp/pgbench.log 2>&1
     
     if [ $? -eq 0 ]; then
         TPS=$(grep "tps" /tmp/pgbench.log | tail -1 | awk '{print $3}')
@@ -200,7 +200,7 @@ echo ""
 # Test 6.1: Check if failover is configured
 echo "Checking HA configuration..."
 
-SYNC_STANDBY=$(PGPASSWORD='ChangeMe123!' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -t -c "SHOW synchronous_standby_names;" 2>/dev/null | tr -d ' ')
+SYNC_STANDBY=$(PGPASSWORD='ChangeMe123Pass' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -t -c "SHOW synchronous_standby_names;" 2>/dev/null | tr -d ' ')
 
 if [ ! -z "$SYNC_STANDBY" ] && [ "$SYNC_STANDBY" != "off" ]; then
     test_result 0 "Synchronous replication configured"
@@ -225,7 +225,7 @@ echo ""
 
 # Test 7.1: Check if load balancer routes to primary
 for i in {1..3}; do
-    SERVER_ADDR=$(PGPASSWORD='ChangeMe123!' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -t -c "SELECT inet_server_addr();" 2>/dev/null | tr -d ' ')
+    SERVER_ADDR=$(PGPASSWORD='ChangeMe123Pass' psql -h 10.50.1.10 -p 5432 -U postgres -d postgres -t -c "SELECT inet_server_addr();" 2>/dev/null | tr -d ' ')
     if [ ! -z "$SERVER_ADDR" ]; then
         echo "   Connection $i routed to: $SERVER_ADDR"
     fi
@@ -237,11 +237,11 @@ echo "=== 8. PGBOUNCER TESTS ==="
 echo ""
 
 # Test 8.1: Check PgBouncer stats
-if PGPASSWORD='ChangeMe123!' psql -h 10.50.1.11 -p 6432 -U postgres -d pgbouncer -c "SHOW POOLS;" > /dev/null 2>&1; then
+if PGPASSWORD='ChangeMe123Pass' psql -h 10.50.1.11 -p 6432 -U postgres -d pgbouncer -c "SHOW POOLS;" > /dev/null 2>&1; then
     test_result 0 "PgBouncer stats accessible"
     echo ""
     echo "PgBouncer Pool Status:"
-    PGPASSWORD='ChangeMe123!' psql -h 10.50.1.11 -p 6432 -U postgres -d pgbouncer -c "SHOW POOLS;"
+    PGPASSWORD='ChangeMe123Pass' psql -h 10.50.1.11 -p 6432 -U postgres -d pgbouncer -c "SHOW POOLS;"
 else
     test_result 1 "PgBouncer stats NOT accessible"
 fi
