@@ -14,8 +14,6 @@ runcmd:
   - echo "deb [signed-by=/usr/share/keyrings/pg.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pg.list
   - apt-get update
   - apt-get install -y postgresql-16 python3-psycopg2
-  - systemctl stop postgresql
-  - systemctl disable postgresql
   - sysctl -w vm.swappiness=1
   - sysctl -w vm.max_map_count=262144
   - |
@@ -50,8 +48,10 @@ runcmd:
     ETCD_INITIAL_ADVERTISE_PEER_URLS="http://${IP}:2380"
     ETCD_ADVERTISE_CLIENT_URLS="http://${IP}:2379"
     ETCD_LISTEN_PEER_URLS="http://${IP}:2380"
-    ETCD_LISTEN_CLIENT_URLS="http://${IP}:2379"
+    ETCD_LISTEN_CLIENT_URLS="http://127.0.0.1:2379,http://${IP}:2379"
     ETCDEOF
+  - systemctl stop postgresql || true
+  - systemctl disable postgresql || true
   - systemctl enable etcd
   - systemctl restart etcd
   - sleep 10
