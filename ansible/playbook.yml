@@ -1,56 +1,220 @@
 ---
-- name: Configure PostgreSQL Patroni HA Cluster
+- name: Install and Configure PostgreSQL Patroni HA Cluster
   hosts: db_nodes
   become: yes
+  vars:
+    postgres_password: "ChangeMe123!"
+    replicator_password: "ChangeMe123!"
+    
   tasks:
-    - name: Check Patroni status
-      command: systemctl is-active patroni
-      register: patroni_status
-      failed_when: false
+    - name: Add PostgreSQL APT repository key
+      ansible.builtin.apt_key:
+        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        state: present
 
-    - name: Check PostgreSQL status
-      command: systemctl is-active postgresql
-      register: postgres_status
-      failed_when: false
+    - name: Add PostgreSQL APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64] http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
+        state: present
 
-    - name: Display Patroni status
-      debug:
-        msg: "Patroni status on {{ inventory_hostname }}: {{ patroni_status.stdout }}"
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: yes
 
-    - name: Display PostgreSQL status
-      debug:
-        msg: "PostgreSQL status on {{ inventory_hostname }}: {{ postgres_status.stdout }}"
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - jq
+          - curl
+          - gnupg
+          - lsb-release
+          - software-properties-common
+          - python3-pip
+          - haproxy
+          - etcd
+          - postgresql-16
+          - postgresql-16-pglogical
+          - python3-psycopg2
+        state: present
 
-    - name: Check Patroni cluster status
-      uri:
-        url: "http://{{ ansible_host }}:8008/cluster"
-        method: GET
-        return_content: yes
-      register: cluster_status
-      failed_when: false
+    - name: Install Patroni
+      ansible.builtin.pip:
+        name: patroni[etcd]
+        state: present
 
-    - name: Display cluster status
-      debug:
-        msg: "{{ cluster_status.json }}"
+    - name: Set kernel parameters
+      ansible.builtin.sysctl:
+        name: "{{ item.name }}"
+        value: "{{ item.value }}"
+        state: present
+        reload: yes
+      loop:
+        - { name: 'vm.swappiness', value: '1' }
+        - { name: 'vm.max_map_count', value: '262144' }
 
-- name: Configure PgBouncer
+    - name: Set file limits
+      ansible.builtin.lineinfile:
+        path: /etc/security/limits.conf
+        line: "{{ item }}"
+      loop:
+        - "* soft nofile 100000"
+        - "* hard nofile 100000"
+
+    - name: Format and mount data disk
+      block:
+        - name: Create partition on data disk
+          ansible.builtin.command: parted -s /dev/disk/azure/scsi1/lun0 mklabel gpt mkpart primary ext4 1MiB 100%
+          args:
+            creates: /dev/disk/azure/scsi1/lun0-part1
+
+        - name: Format data disk
+          ansible.builtin.filesystem:
+            fstype: ext4
+            dev: /dev/disk/azure/scsi1/lun0-part1
+
+        - name: Create pgdata directory
+          ansible.builtin.file:
+            path: /pgdata
+            state: directory
+            owner: postgres
+            group: postgres
+
+        - name: Mount data disk
+          ansible.builtin.mount:
+            path: /pgdata
+            src: /dev/disk/azure/scsi1/lun0-part1
+            fstype: ext4
+            opts: defaults,noatime
+            state: mounted
+
+    - name: Format and mount WAL disk
+      block:
+        - name: Create partition on WAL disk
+          ansible.builtin.command: parted -s /dev/disk/azure/scsi1/lun1 mklabel gpt mkpart primary ext4 1MiB 100%
+          args:
+            creates: /dev/disk/azure/scsi1/lun1-part1
+
+        - name: Format WAL disk
+          ansible.builtin.filesystem:
+            fstype: ext4
+            dev: /dev/disk/azure/scsi1/lun1-part1
+
+        - name: Create pgwal directory
+          ansible.builtin.file:
+            path: /pgwal
+            state: directory
+            owner: postgres
+            group: postgres
+
+        - name: Mount WAL disk
+          ansible.builtin.mount:
+            path: /pgwal
+            src: /dev/disk/azure/scsi1/lun1-part1
+            fstype: ext4
+            opts: defaults,noatime
+            state: mounted
+
+    - name: Stop PostgreSQL
+      ansible.builtin.systemd:
+        name: postgresql
+        state: stopped
+
+    - name: Copy PostgreSQL data to new location
+      ansible.builtin.command: rsync -a /var/lib/postgresql/16/main/ /pgdata/
+      args:
+        creates: /pgdata/PG_VERSION
+
+    - name: Set ownership
+      ansible.builtin.file:
+        path: "{{ item }}"
+        owner: postgres
+        group: postgres
+        recurse: yes
+      loop:
+        - /pgdata
+        - /pgwal
+
+    - name: Configure etcd
+      ansible.builtin.template:
+        src: etcd.conf.j2
+        dest: /etc/default/etcd
+      notify: restart etcd
+
+    - name: Configure Patroni
+      ansible.builtin.template:
+        src: patroni.yml.j2
+        dest: /etc/patroni/patroni.yml
+        owner: postgres
+        group: postgres
+
+    - name: Create Patroni systemd service
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/patroni.service
+        content: |
+          [Unit]
+          Description=Patroni Service
+          After=network.target
+          [Service]
+          Type=simple
+          User=postgres
+          Group=postgres
+          ExecStart=/usr/local/bin/patroni /etc/patroni/patroni.yml
+          Restart=on-failure
+          LimitNOFILE=100000
+          [Install]
+          WantedBy=multi-user.target
+
+    - name: Enable and start Patroni
+      ansible.builtin.systemd:
+        name: patroni
+        enabled: yes
+        state: started
+        daemon_reload: yes
+
+  handlers:
+    - name: restart etcd
+      ansible.builtin.systemd:
+        name: etcd
+        state: restarted
+
+- name: Install and Configure PgBouncer
   hosts: pgbouncer_nodes
   become: yes
+  vars:
+    db_ilb_ip: "10.50.1.10"
+    pgbouncer_admin_user: "pgbouncer"
+    pgbouncer_admin_pass: "StrongPass123!"
+    
   tasks:
-    - name: Check PgBouncer status
-      command: systemctl is-active pgbouncer
-      register: pgbouncer_status
-      failed_when: false
+    - name: Install PgBouncer
+      ansible.builtin.apt:
+        name: pgbouncer
+        state: present
+        update_cache: yes
 
-    - name: Display PgBouncer status
-      debug:
-        msg: "PgBouncer status on {{ inventory_hostname }}: {{ pgbouncer_status.stdout }}"
+    - name: Configure PgBouncer
+      ansible.builtin.template:
+        src: pgbouncer.ini.j2
+        dest: /etc/pgbouncer/pgbouncer.ini
+      notify: restart pgbouncer
 
-    - name: Test PgBouncer connection
-      command: psql -h localhost -p 6432 -U postgres -d postgres -c "SELECT version();"
-      register: pgbouncer_test
-      failed_when: false
+    - name: Configure PgBouncer users
+      ansible.builtin.copy:
+        dest: /etc/pgbouncer/userlist.txt
+        content: |
+          "{{ pgbouncer_admin_user }}" "{{ pgbouncer_admin_pass }}"
+        owner: pgbouncer
+        group: pgbouncer
+        mode: '0640'
 
-    - name: Display PgBouncer test result
-      debug:
-        msg: "PgBouncer test on {{ inventory_hostname }}: {{ pgbouncer_test.stdout }}"
+    - name: Enable and start PgBouncer
+      ansible.builtin.systemd:
+        name: pgbouncer
+        enabled: yes
+        state: started
+
+  handlers:
+    - name: restart pgbouncer
+      ansible.builtin.systemd:
+        name: pgbouncer
+        state: restarted

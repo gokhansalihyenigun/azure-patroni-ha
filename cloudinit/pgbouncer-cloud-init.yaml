@@ -1,35 +1,44 @@
 #cloud-config
 package_update: true
 package_upgrade: true
+
 packages:
   - pgbouncer
+  - postgresql-client
+
+write_files:
+  - path: /tmp/setup-pgbouncer.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      set -e
+      
+      cat > /etc/pgbouncer/pgbouncer.ini <<PGBEOF
+      [databases]
+      postgres = host=10.50.1.10 port=5432 dbname=postgres
+      * = host=10.50.1.10 port=5432
+      [pgbouncer]
+      listen_addr = 0.0.0.0
+      listen_port = 6432
+      pool_mode = transaction
+      default_pool_size = 200
+      max_client_conn = 2000
+      ignore_startup_parameters = extra_float_digits
+      server_tls_sslmode = prefer
+      auth_type = md5
+      auth_file = /etc/pgbouncer/userlist.txt
+      admin_users = pgbouncer
+      PGBEOF
+      
+      cat > /etc/pgbouncer/userlist.txt <<USEREOF
+      "pgbouncer" "StrongPass123!"
+      USEREOF
+      
+      chown pgbouncer:pgbouncer /etc/pgbouncer/userlist.txt
+      chmod 640 /etc/pgbouncer/userlist.txt
+      
+      systemctl enable pgbouncer
+      systemctl restart pgbouncer
+
 runcmd:
-  - |
-    IP=$(ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
-    DB_ILB_IP='10.50.1.10'
-    ADMIN_USER='pgbouncer'
-    ADMIN_PASS='StrongPass123!'
-    DEFAULT_POOL='200'
-    MAX_CLIENT_CONN='2000'
-    cat >/etc/pgbouncer/pgbouncer.ini <<EOF
-[databases]
-postgres = host=${DB_ILB_IP} port=5432 dbname=postgres
-* = host=${DB_ILB_IP} port=5432
-[pgbouncer]
-listen_addr = 0.0.0.0
-listen_port = 6432
-pool_mode = transaction
-default_pool_size = ${DEFAULT_POOL}
-max_client_conn = ${MAX_CLIENT_CONN}
-ignore_startup_parameters = extra_float_digits
-server_tls_sslmode = prefer
-auth_type = scram-sha-256
-auth_file = /etc/pgbouncer/userlist.txt
-admin_users = ${ADMIN_USER}
-EOF
-    printf '"%s" "%s"
-' ${ADMIN_USER} ${ADMIN_PASS} > /etc/pgbouncer/userlist.txt
-    chown pgbouncer:pgbouncer /etc/pgbouncer/userlist.txt
-    chmod 640 /etc/pgbouncer/userlist.txt
-    systemctl enable pgbouncer
-    systemctl restart pgbouncer
+  - /tmp/setup-pgbouncer.sh > /var/log/pgbouncer-setup.log 2>&1
