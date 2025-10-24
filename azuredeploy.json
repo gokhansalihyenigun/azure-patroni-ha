@@ -101,6 +101,8 @@
     "vnetName": "[format('{0}-vnet', parameters('prefix'))]",
     "subnetName": "db",
     "nsgName": "[format('{0}-nsg', parameters('prefix'))]",
+    "natGatewayName": "[format('{0}-nat', parameters('prefix'))]",
+    "publicIpName": "[format('{0}-nat-pip', parameters('prefix'))]",
     "ilbName": "[format('{0}-ilb', parameters('prefix'))]",
     "elbName": "[format('{0}-elb', parameters('prefix'))]",
     "pgbIlbName": "[format('{0}-pgb-ilb', parameters('prefix'))]",
@@ -124,14 +126,54 @@
   },
   "resources": [
     {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2023-11-01",
+      "name": "[variables('publicIpName')]",
+      "location": "[parameters('region')]",
+      "sku": { "name": "Standard" },
+      "properties": {
+        "publicIPAllocationMethod": "Static",
+        "publicIPAddressVersion": "IPv4"
+      }
+    },
+    {
+      "type": "Microsoft.Network/natGateways",
+      "apiVersion": "2023-11-01",
+      "name": "[variables('natGatewayName')]",
+      "location": "[parameters('region')]",
+      "sku": { "name": "Standard" },
+      "properties": {
+        "publicIpAddresses": [
+          { "id": "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))]" }
+        ],
+        "idleTimeoutInMinutes": 4
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))]"
+      ]
+    },
+    {
       "type": "Microsoft.Network/virtualNetworks",
       "apiVersion": "2023-11-01",
       "name": "[variables('vnetName')]",
       "location": "[parameters('region')]",
       "properties": {
         "addressSpace": { "addressPrefixes": [ "[parameters('addressPrefix')]" ] },
-        "subnets": [ { "name": "[variables('subnetName')]", "properties": { "addressPrefix": "[parameters('subnetPrefix')]" } } ]
-      }
+        "subnets": [ 
+          { 
+            "name": "[variables('subnetName')]", 
+            "properties": { 
+              "addressPrefix": "[parameters('subnetPrefix')]",
+              "natGateway": {
+                "id": "[resourceId('Microsoft.Network/natGateways', variables('natGatewayName'))]"
+              }
+            } 
+          } 
+        ]
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/natGateways', variables('natGatewayName'))]"
+      ]
     },
     {
       "type": "Microsoft.Network/networkSecurityGroups",
