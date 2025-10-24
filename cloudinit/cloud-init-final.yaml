@@ -42,15 +42,15 @@ runcmd:
   - |
     HOSTNAME=$(hostname -s)
     IP=$(ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
-    cat > /etc/default/etcd <<ETCDEOF
-    ETCD_NAME="\${HOSTNAME}"
-    ETCD_INITIAL_CLUSTER="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380"
-    ETCD_INITIAL_CLUSTER_STATE="new"
-    ETCD_INITIAL_ADVERTISE_PEER_URLS="http://\${IP}:2380"
-    ETCD_ADVERTISE_CLIENT_URLS="http://\${IP}:2379"
-    ETCD_LISTEN_PEER_URLS="http://\${IP}:2380"
-    ETCD_LISTEN_CLIENT_URLS="http://127.0.0.1:2379,http://\${IP}:2379"
-    ETCDEOF
+    cat > /etc/default/etcd <<'ETCDEOF'
+ETCD_NAME="${HOSTNAME}"
+ETCD_INITIAL_CLUSTER="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380"
+ETCD_INITIAL_CLUSTER_STATE="new"
+ETCD_INITIAL_ADVERTISE_PEER_URLS="http://${IP}:2380"
+ETCD_ADVERTISE_CLIENT_URLS="http://${IP}:2379"
+ETCD_LISTEN_PEER_URLS="http://${IP}:2380"
+ETCD_LISTEN_CLIENT_URLS="http://127.0.0.1:2379,http://${IP}:2379"
+ETCDEOF
     sed -i "s/\${HOSTNAME}/${HOSTNAME}/g" /etc/default/etcd
     sed -i "s/\${IP}/${IP}/g" /etc/default/etcd
   - systemctl stop postgresql || true
@@ -63,87 +63,87 @@ runcmd:
   - |
     HOSTNAME=$(hostname -s)
     IP=$(ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
-    cat > /etc/patroni/patroni.yml <<PATRONIEOF
-    scope: pg-ha
-    namespace: /service/
-    name: __HOSTNAME__
-    restapi:
-      listen: 0.0.0.0:8008
-      connect_address: __IP__:8008
-    etcd:
-      hosts: 10.50.1.4:2379,10.50.1.5:2379
-    bootstrap:
-      dcs:
-        ttl: 20
-        loop_wait: 5
-        retry_timeout: 5
-        maximum_lag_on_failover: 1048576
-        synchronous_mode: true
-        synchronous_mode_strict: false
-        synchronous_node_count: 1
-        postgresql:
-          parameters:
-            wal_level: logical
-            max_wal_senders: 20
-            max_replication_slots: 20
-            shared_buffers: 4GB
-            effective_cache_size: 8GB
-            maintenance_work_mem: 1GB
-            work_mem: 64MB
-            checkpoint_timeout: 10min
-            synchronous_commit: on
-          use_slots: true
-          use_pg_rewind: true
-      initdb:
-        - encoding: UTF8
-        - data-checksums
-      pg_hba:
-        - host replication replicator 10.50.0.0/16 md5
-        - host all all 10.50.0.0/16 md5
-      users:
-        replicator:
-          password: ChangeMe123Pass
-          options:
-            - replication
+    cat > /etc/patroni/patroni.yml <<'PATRONIEOF'
+scope: pg-ha
+namespace: /service/
+name: __HOSTNAME__
+restapi:
+  listen: 0.0.0.0:8008
+  connect_address: __IP__:8008
+etcd:
+  hosts: 10.50.1.4:2379,10.50.1.5:2379
+bootstrap:
+  dcs:
+    ttl: 20
+    loop_wait: 5
+    retry_timeout: 5
+    maximum_lag_on_failover: 1048576
+    synchronous_mode: true
+    synchronous_mode_strict: false
+    synchronous_node_count: 1
     postgresql:
-      listen: 0.0.0.0:5432
-      connect_address: __IP__:5432
-      data_dir: /pgdata
-      bin_dir: /usr/lib/postgresql/16/bin
-      parameters: {}
-      authentication:
-        superuser:
-          username: postgres
-          password: ChangeMe123Pass
-        replication:
-          username: replicator
-          password: ChangeMe123Pass
-    tags:
-      nofailover: false
-      noloadbalance: false
-      clonefrom: false
-    PATRONIEOF
+      parameters:
+        wal_level: logical
+        max_wal_senders: 20
+        max_replication_slots: 20
+        shared_buffers: 4GB
+        effective_cache_size: 8GB
+        maintenance_work_mem: 1GB
+        work_mem: 64MB
+        checkpoint_timeout: 10min
+        synchronous_commit: on
+      use_slots: true
+      use_pg_rewind: true
+  initdb:
+    - encoding: UTF8
+    - data-checksums
+  pg_hba:
+    - host replication replicator 10.50.0.0/16 md5
+    - host all all 10.50.0.0/16 md5
+  users:
+    replicator:
+      password: ChangeMe123Pass
+      options:
+        - replication
+postgresql:
+  listen: 0.0.0.0:5432
+  connect_address: __IP__:5432
+  data_dir: /pgdata
+  bin_dir: /usr/lib/postgresql/16/bin
+  parameters: {}
+  authentication:
+    superuser:
+      username: postgres
+      password: ChangeMe123Pass
+    replication:
+      username: replicator
+      password: ChangeMe123Pass
+tags:
+  nofailover: false
+  noloadbalance: false
+  clonefrom: false
+PATRONIEOF
     sed -i "s/__HOSTNAME__/${HOSTNAME}/g" /etc/patroni/patroni.yml
     sed -i "s/__IP__/${IP}/g" /etc/patroni/patroni.yml
   - chown postgres:postgres /etc/patroni/patroni.yml
   - |
-    cat > /etc/systemd/system/patroni.service <<SERVICEEOF
-    [Unit]
-    Description=Patroni PostgreSQL HA
-    After=network.target etcd.service
-    
-    [Service]
-    Type=simple
-    User=postgres
-    Group=postgres
-    ExecStart=/usr/local/bin/patroni /etc/patroni/patroni.yml
-    Restart=on-failure
-    RestartSec=5
-    LimitNOFILE=100000
-    
-    [Install]
-    WantedBy=multi-user.target
-    SERVICEEOF
+    cat > /etc/systemd/system/patroni.service <<'SERVICEEOF'
+[Unit]
+Description=Patroni PostgreSQL HA
+After=network.target etcd.service
+
+[Service]
+Type=simple
+User=postgres
+Group=postgres
+ExecStart=/usr/local/bin/patroni /etc/patroni/patroni.yml
+Restart=on-failure
+RestartSec=5
+LimitNOFILE=100000
+
+[Install]
+WantedBy=multi-user.target
+SERVICEEOF
   - systemctl daemon-reload
   - systemctl enable patroni
   - systemctl start patroni
