@@ -1,0 +1,164 @@
+#cloud-config
+
+packages:
+  - jq
+  - curl
+  - gnupg
+  - lsb-release
+  - python3-pip
+  - haproxy
+  - etcd
+
+runcmd:
+  - curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pg.gpg
+  - echo "deb [signed-by=/usr/share/keyrings/pg.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pg.list
+  - apt-get update
+  - apt-get install -y postgresql-16 python3-psycopg2
+  - systemctl stop postgresql
+  - systemctl disable postgresql
+  - sysctl -w vm.swappiness=1
+  - sysctl -w vm.max_map_count=262144
+  - |
+    DISK_DATA=/dev/disk/azure/scsi1/lun0
+    if [ -b "$DISK_DATA" ]; then
+      parted -s ${DISK_DATA} mklabel gpt mkpart primary ext4 1MiB 100%
+      sleep 3
+      mkfs.ext4 -F ${DISK_DATA}1
+      mkdir -p /pgdata
+      echo "${DISK_DATA}1 /pgdata ext4 defaults,noatime 0 2" >> /etc/fstab
+      mount -a
+      chown -R postgres:postgres /pgdata
+    fi
+  - |
+    DISK_WAL=/dev/disk/azure/scsi1/lun1
+    if [ -b "$DISK_WAL" ]; then
+      parted -s ${DISK_WAL} mklabel gpt mkpart primary ext4 1MiB 100%
+      sleep 3
+      mkfs.ext4 -F ${DISK_WAL}1
+      mkdir -p /pgwal
+      echo "${DISK_WAL}1 /pgwal ext4 defaults,noatime 0 2" >> /etc/fstab
+      mount -a
+      chown -R postgres:postgres /pgwal
+    fi
+  - |
+    HOSTNAME=$(hostname -s)
+    IP=$(ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
+    cat > /etc/default/etcd <<ETCDEOF
+    ETCD_NAME="${HOSTNAME}"
+    ETCD_INITIAL_CLUSTER="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380"
+    ETCD_INITIAL_CLUSTER_STATE="new"
+    ETCD_INITIAL_ADVERTISE_PEER_URLS="http://${IP}:2380"
+    ETCD_ADVERTISE_CLIENT_URLS="http://${IP}:2379"
+    ETCD_LISTEN_PEER_URLS="http://${IP}:2380"
+    ETCD_LISTEN_CLIENT_URLS="http://${IP}:2379"
+    ETCDEOF
+  - systemctl enable etcd
+  - systemctl restart etcd
+  - sleep 10
+  - pip3 install patroni[etcd] requests
+  - mkdir -p /etc/patroni
+  - |
+    HOSTNAME=$(hostname -s)
+    IP=$(ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
+    cat > /etc/patroni/patroni.yml <<PATRONIEOF
+    scope: pg-ha
+    namespace: /service/
+    name: ${HOSTNAME}
+    restapi:
+      listen: 0.0.0.0:8008
+      connect_address: ${IP}:8008
+    etcd:
+      hosts: 10.50.1.4:2379,10.50.1.5:2379
+    bootstrap:
+      dcs:
+        ttl: 20
+        loop_wait: 5
+        retry_timeout: 5
+        maximum_lag_on_failover: 1048576
+        synchronous_mode: true
+        synchronous_mode_strict: false
+        synchronous_node_count: 1
+        postgresql:
+          parameters:
+            wal_level: logical
+            max_wal_senders: 20
+            max_replication_slots: 20
+            shared_buffers: 4GB
+            effective_cache_size: 8GB
+            maintenance_work_mem: 1GB
+            work_mem: 64MB
+            checkpoint_timeout: 10min
+            synchronous_commit: on
+          use_slots: true
+          use_pg_rewind: true
+      initdb:
+        - encoding: UTF8
+        - data-checksums
+      pg_hba:
+        - host replication replicator 10.50.0.0/16 md5
+        - host all all 10.50.0.0/16 md5
+      users:
+        replicator:
+          password: ChangeMe123!
+          options:
+            - replication
+    postgresql:
+      listen: 0.0.0.0:5432
+      connect_address: ${IP}:5432
+      data_dir: /pgdata
+      bin_dir: /usr/lib/postgresql/16/bin
+      parameters: {}
+      authentication:
+        superuser:
+          username: postgres
+          password: ChangeMe123!
+        replication:
+          username: replicator
+          password: ChangeMe123!
+    tags:
+      nofailover: false
+      noloadbalance: false
+      clonefrom: false
+    PATRONIEOF
+  - chown postgres:postgres /etc/patroni/patroni.yml
+  - |
+    cat > /etc/systemd/system/patroni.service <<SERVICEEOF
+    [Unit]
+    Description=Patroni PostgreSQL HA
+    After=network.target
+
+    [Service]
+    Type=simple
+    User=postgres
+    Group=postgres
+    ExecStart=/usr/local/bin/patroni /etc/patroni/patroni.yml
+    Restart=on-failure
+    LimitNOFILE=100000
+
+    [Install]
+    WantedBy=multi-user.target
+    SERVICEEOF
+  - systemctl daemon-reload
+  - systemctl enable patroni
+  - systemctl start patroni
+  - |
+    cat > /etc/haproxy/haproxy.cfg <<HAPROXYEOF
+    global
+        maxconn 100000
+    defaults
+        mode tcp
+        timeout connect 5s
+        timeout client  24h
+        timeout server  24h
+    frontend pg_fe
+        bind *:5432
+        default_backend pg_be
+    backend pg_be
+        option tcp-check
+        tcp-check connect port 5432
+        server pg1 10.50.1.4:5432 check
+        server pg2 10.50.1.5:5432 check backup
+    HAPROXYEOF
+  - systemctl enable haproxy
+  - systemctl restart haproxy
+
