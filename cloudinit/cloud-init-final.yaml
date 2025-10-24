@@ -24,6 +24,7 @@ runcmd:
       mkdir -p /pgdata
       echo "${DISK_DATA}1 /pgdata ext4 defaults,noatime 0 2" >> /etc/fstab
       mount -a
+      chmod 700 /pgdata
       chown -R postgres:postgres /pgdata
     fi
   - |
@@ -35,6 +36,7 @@ runcmd:
       mkdir -p /pgwal
       echo "${DISK_WAL}1 /pgwal ext4 defaults,noatime 0 2" >> /etc/fstab
       mount -a
+      chmod 700 /pgwal
       chown -R postgres:postgres /pgwal
     fi
   - |
