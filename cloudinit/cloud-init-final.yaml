@@ -127,23 +127,23 @@ runcmd:
     sed -i "s/__IP__/${IP}/g" /etc/patroni/patroni.yml
   - chown postgres:postgres /etc/patroni/patroni.yml
   - |
-    cat > /etc/systemd/system/patroni.service <<'SERVICEEOF'
-[Unit]
-Description=Patroni PostgreSQL HA
-After=network.target etcd.service
-
-[Service]
-Type=simple
-User=postgres
-Group=postgres
-ExecStart=/usr/local/bin/patroni /etc/patroni/patroni.yml
-Restart=on-failure
-RestartSec=5
-LimitNOFILE=100000
-
-[Install]
-WantedBy=multi-user.target
-SERVICEEOF
+    cat > /etc/systemd/system/patroni.service <<SERVICEEOF
+    [Unit]
+    Description=Patroni PostgreSQL HA
+    After=network.target etcd.service
+    
+    [Service]
+    Type=simple
+    User=postgres
+    Group=postgres
+    ExecStart=/usr/local/bin/patroni /etc/patroni/patroni.yml
+    Restart=on-failure
+    RestartSec=5
+    LimitNOFILE=100000
+    
+    [Install]
+    WantedBy=multi-user.target
+    SERVICEEOF
   - systemctl daemon-reload
   - systemctl enable patroni
   - systemctl start patroni
