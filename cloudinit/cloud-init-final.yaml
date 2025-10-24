@@ -6,7 +6,6 @@ packages:
   - gnupg
   - lsb-release
   - python3-pip
-  - haproxy
   - etcd
 
 runcmd:
@@ -141,24 +140,4 @@ runcmd:
   - systemctl daemon-reload
   - systemctl enable patroni
   - systemctl start patroni
-  - |
-    cat > /etc/haproxy/haproxy.cfg <<HAPROXYEOF
-    global
-        maxconn 100000
-    defaults
-        mode tcp
-        timeout connect 5s
-        timeout client  24h
-        timeout server  24h
-    frontend pg_fe
-        bind *:5432
-        default_backend pg_be
-    backend pg_be
-        option tcp-check
-        tcp-check connect port 5432
-        server pg1 10.50.1.4:5432 check
-        server pg2 10.50.1.5:5432 check backup
-    HAPROXYEOF
-  - systemctl enable haproxy
-  - systemctl restart haproxy
 
