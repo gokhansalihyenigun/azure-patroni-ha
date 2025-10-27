@@ -121,7 +121,7 @@ module ilb 'modules/lb.bicep' = {
   }
 }
 
-module elb 'modules/lb.bicep' = {
+module elb 'modules/lb.bicep' = if (enablePublicLB) {
   name: 'elb-deployment'
   params: {
     location: location
@@ -135,10 +135,9 @@ module elb 'modules/lb.bicep' = {
     isPublic: true
     prefix: prefix
   }
-  condition: enablePublicLB
 }
 
-module pgbIlb 'modules/lb.bicep' = {
+module pgbIlb 'modules/lb.bicep' = if (enablePgBouncerTier) {
   name: 'pgb-ilb-deployment'
   params: {
     location: location
@@ -154,7 +153,6 @@ module pgbIlb 'modules/lb.bicep' = {
     probePort: 6432
     probeProtocol: 'Tcp'
   }
-  condition: enablePgBouncerTier
 }
 
 module vm 'modules/vm.bicep' = {
@@ -179,7 +177,7 @@ module vm 'modules/vm.bicep' = {
   }
 }
 
-module pgbVm 'modules/pgbouncer-vm.bicep' = {
+module pgbVm 'modules/pgbouncer-vm.bicep' = if (enablePgBouncerTier) {
   name: 'pgb-vm-deployment'
   params: {
     location: location
@@ -200,7 +198,6 @@ module pgbVm 'modules/pgbouncer-vm.bicep' = {
     pgbouncerDefaultPool: pgbouncerDefaultPool
     pgbouncerMaxClientConn: pgbouncerMaxClientConn
   }
-  condition: enablePgBouncerTier
 }
 
 // Outputs
