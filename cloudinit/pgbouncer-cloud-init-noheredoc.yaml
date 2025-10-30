@@ -3,8 +3,26 @@
 packages:
   - pgbouncer
   - postgresql-client
+  - etcd
 
 write_files:
+  - path: /tmp/setup-etcd.sh
+    permissions: '0755'
+    content: |
+      #!/bin/bash
+      HOSTNAME=$(hostname -s)
+      IP=$(ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
+      cat > /etc/default/etcd <<'ETCDEOF'
+      ETCD_NAME="${HOSTNAME}"
+      ETCD_INITIAL_CLUSTER="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380,pgpatroni-pgb-1=http://10.50.1.7:2380"
+      ETCD_INITIAL_CLUSTER_STATE="new"
+      ETCD_INITIAL_ADVERTISE_PEER_URLS="http://${IP}:2380"
+      ETCD_ADVERTISE_CLIENT_URLS="http://${IP}:2379"
+      ETCD_LISTEN_PEER_URLS="http://${IP}:2380"
+      ETCD_LISTEN_CLIENT_URLS="http://127.0.0.1:2379,http://${IP}:2379"
+      ETCDEOF
+      sed -i "s/\${HOSTNAME}/${HOSTNAME}/g" /etc/default/etcd
+      sed -i "s/\${IP}/${IP}/g" /etc/default/etcd
   - path: /etc/pgbouncer/pgbouncer.ini
     permissions: '0644'
     content: |
@@ -19,15 +37,26 @@ write_files:
       max_client_conn = 2000
       ignore_startup_parameters = extra_float_digits
       server_tls_sslmode = prefer
-      auth_type = md5
+      auth_type = plain
       auth_file = /etc/pgbouncer/userlist.txt
       admin_users = pgbouncer
   - path: /etc/pgbouncer/userlist.txt
     permissions: '0640'
     content: |
       "pgbouncer" "StrongPass123"
+      "postgres" "ChangeMe123Pass"
 
 runcmd:
+  - |
+    IP=$(ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
+    if [ "$IP" = "10.50.1.7" ]; then
+      /tmp/setup-etcd.sh
+      systemctl enable etcd
+      systemctl restart etcd
+    else
+      systemctl stop etcd || true
+      systemctl disable etcd || true
+    fi
   - chown pgbouncer:pgbouncer /etc/pgbouncer/userlist.txt
   - chmod 640 /etc/pgbouncer/userlist.txt
   - systemctl enable pgbouncer

@@ -17,7 +17,7 @@ write_files:
       IP=$(ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
       cat > /etc/default/etcd <<'ETCDEOF'
       ETCD_NAME="${HOSTNAME}"
-      ETCD_INITIAL_CLUSTER="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380"
+      ETCD_INITIAL_CLUSTER="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380,pgpatroni-pgb-1=http://10.50.1.7:2380"
       ETCD_INITIAL_CLUSTER_STATE="new"
       ETCD_INITIAL_ADVERTISE_PEER_URLS="http://${IP}:2380"
       ETCD_ADVERTISE_CLIENT_URLS="http://${IP}:2379"
@@ -41,7 +41,7 @@ write_files:
         listen: 0.0.0.0:8008
         connect_address: __IP__:8008
       etcd:
-        hosts: 10.50.1.4:2379,10.50.1.5:2379
+        hosts: 10.50.1.4:2379,10.50.1.5:2379,10.50.1.7:2379
       bootstrap:
         dcs:
           ttl: 20
