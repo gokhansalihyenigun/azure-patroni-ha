@@ -17,6 +17,7 @@ write_files:
       IP=$(ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
       cat > /etc/default/etcd <<'ETCDEOF'
       ETCD_NAME="${HOSTNAME}"
+      ETCD_INITIAL_CLUSTER_TOKEN="pg-ha-token"
       ETCD_INITIAL_CLUSTER="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380,pgpatroni-pgb-1=http://10.50.1.7:2380"
       ETCD_INITIAL_CLUSTER_STATE="new"
       ETCD_INITIAL_ADVERTISE_PEER_URLS="http://${IP}:2380"
@@ -127,11 +128,13 @@ runcmd:
     DISK_DATA=/dev/disk/azure/scsi1/lun0
     if [ -b "$DISK_DATA" ]; then
       parted -s ${DISK_DATA} mklabel gpt mkpart primary ext4 1MiB 100%
+      partprobe ${DISK_DATA} || true
       sleep 3
-      mkfs.ext4 -F ${DISK_DATA}1
+      PART_DATA=${DISK_DATA}-part1
+      mkfs.ext4 -F ${PART_DATA}
       mkdir -p /pgdata
-      echo "${DISK_DATA}1 /pgdata ext4 defaults,noatime 0 2" >> /etc/fstab
-      mount -a
+      echo "${PART_DATA} /pgdata ext4 defaults,noatime 0 2" >> /etc/fstab
+      mount -a || mount ${PART_DATA} /pgdata
       chmod 700 /pgdata
       chown -R postgres:postgres /pgdata
     fi
@@ -139,11 +142,13 @@ runcmd:
     DISK_WAL=/dev/disk/azure/scsi1/lun1
     if [ -b "$DISK_WAL" ]; then
       parted -s ${DISK_WAL} mklabel gpt mkpart primary ext4 1MiB 100%
+      partprobe ${DISK_WAL} || true
       sleep 3
-      mkfs.ext4 -F ${DISK_WAL}1
+      PART_WAL=${DISK_WAL}-part1
+      mkfs.ext4 -F ${PART_WAL}
       mkdir -p /pgwal
-      echo "${DISK_WAL}1 /pgwal ext4 defaults,noatime 0 2" >> /etc/fstab
-      mount -a
+      echo "${PART_WAL} /pgwal ext4 defaults,noatime 0 2" >> /etc/fstab
+      mount -a || mount ${PART_WAL} /pgwal
       chmod 700 /pgwal
       chown -R postgres:postgres /pgwal
     fi
