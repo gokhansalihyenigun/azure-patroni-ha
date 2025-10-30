@@ -36,7 +36,6 @@ write_files:
       default_pool_size = 200
       max_client_conn = 2000
       ignore_startup_parameters = extra_float_digits
-      server_tls_sslmode = prefer
       auth_type = plain
       auth_file = /etc/pgbouncer/userlist.txt
       admin_users = pgbouncer
@@ -47,6 +46,8 @@ write_files:
       "postgres" "ChangeMe123Pass"
 
 runcmd:
+  - adduser --system --group --home /var/lib/pgbouncer pgbouncer || true
+  - install -o pgbouncer -g pgbouncer -m 755 -d /run/pgbouncer /var/log/pgbouncer
   - |
     IP=$(ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
     if [ "$IP" = "10.50.1.7" ]; then
@@ -59,5 +60,25 @@ runcmd:
     fi
   - chown pgbouncer:pgbouncer /etc/pgbouncer/userlist.txt
   - chmod 640 /etc/pgbouncer/userlist.txt
-  - systemctl enable pgbouncer
-  - systemctl restart pgbouncer
+  - chown -R pgbouncer:pgbouncer /etc/pgbouncer /var/log/pgbouncer /run/pgbouncer
+  - tee /etc/systemd/system/pgbouncer.service >/dev/null <<'UNIT' 
+      [Unit]
+      Description=PgBouncer connection pooler
+      After=network.target
+
+      [Service]
+      User=pgbouncer
+      Group=pgbouncer
+      Type=simple
+      ExecStart=/usr/sbin/pgbouncer -q /etc/pgbouncer/pgbouncer.ini
+      PIDFile=/run/pgbouncer/pgbouncer.pid
+      RuntimeDirectory=pgbouncer
+      RuntimeDirectoryMode=0755
+      Restart=on-failure
+      RestartSec=2
+
+      [Install]
+      WantedBy=multi-user.target
+UNIT
+  - systemctl daemon-reload
+  - systemctl enable --now pgbouncer
