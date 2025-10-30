@@ -121,7 +121,8 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-03-01' = [for i in range(len
           ]
         }
       }
-      customData: base64(loadFileContent('cloudinit/pgbouncer-cloud-init.yaml'))
+      // Path is relative to this module file location
+      customData: base64(loadFileContent('../../cloudinit/pgbouncer-cloud-init.yaml'))
     }
     storageProfile: {
       imageReference: {

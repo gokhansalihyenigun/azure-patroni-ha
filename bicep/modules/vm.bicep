@@ -119,7 +119,8 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-03-01' = [for i in range(len
           ]
         }
       }
-      customData: base64(loadFileContent('cloudinit/cloud-init.yaml'))
+      // Path is relative to this module file location
+      customData: base64(loadFileContent('../../cloudinit/cloud-init.yaml'))
     }
     storageProfile: {
       imageReference: {
@@ -140,7 +141,7 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-03-01' = [for i in range(len
           createOption: 'Empty'
           diskSizeGB: dataDiskSizeGB
           managedDisk: {
-            storageAccountType: 'PremiumV2_LRS'
+          storageAccountType: 'Premium_LRS'
           }
         }
         {
@@ -148,7 +149,7 @@ resource vm 'Microsoft.Compute/virtualMachines@2024-03-01' = [for i in range(len
           createOption: 'Empty'
           diskSizeGB: walDiskSizeGB
           managedDisk: {
-            storageAccountType: 'PremiumV2_LRS'
+          storageAccountType: 'Premium_LRS'
           }
         }
       ] : []

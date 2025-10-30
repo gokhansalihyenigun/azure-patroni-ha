@@ -49,7 +49,7 @@ resource subnet 'Microsoft.Network/virtualNetworks/subnets@2023-11-01' existing 
   parent: vnet
 }
 
-resource publicIP 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
+resource publicIP 'Microsoft.Network/publicIPAddresses@2023-11-01' = if (isPublic) {
   name: '${lbName}-pip'
   location: location
   sku: {
@@ -58,7 +58,6 @@ resource publicIP 'Microsoft.Network/publicIPAddresses@2023-11-01' = {
   properties: {
     publicIPAllocationMethod: 'Static'
   }
-  condition: isPublic
 }
 
 resource lb 'Microsoft.Network/loadBalancers@2023-11-01' = {
