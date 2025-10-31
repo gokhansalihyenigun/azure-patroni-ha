@@ -325,14 +325,15 @@ fi
 say "Performance (optional)"
 if ensure_pgbench >/dev/null 2>&1; then
   ensure_pgbench_init || true
-  # short run to verify and show TPS
-  out=$(PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 10 -c 8 -j 4 -M simple 2>/dev/null || true)
-  # Parse TPS from either summary format
-  tps=$(echo "$out" | awk -F'=' '/^tps/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); split($2,a," "); print a[1]}' | tail -1)
-  if [[ -z "$tps" ]]; then
-    tps=$(echo "$out" | awk '/including connections initializing/ {print $(NF-1)}' | tail -1)
-  fi
-  if [[ -n "$tps" ]]; then
+  # short run to verify and show QPS (-S mode: SELECT-only queries)
+  out=$(PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 10 -c 8 -j 4 -S -M simple 2>/dev/null || true)
+  # Parse QPS from pgbench output (pgbench still calls it 'tps' even in -S mode)
+  local qps=""
+  qps=$(echo "$out" | awk '/^tps[ =]/ {for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
+  [[ -z "$qps" ]] && qps=$(echo "$out" | grep -i "tps" | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
+  [[ -z "$qps" ]] && qps=$(echo "$out" | awk '/transactions|queries/ {print $(NF-1)}' | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
+  [[ -n "$qps" ]] && qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
+  if [[ -n "$qps" ]]; then
     pass "Performance test ran (~${tps} TPS)"
   else
     pass "Performance test ran"
@@ -361,8 +362,11 @@ failover_under_load() {
   fi
   # wait for pgbench to finish to capture QPS
   wait $bench_pid 2>/dev/null || true
-  local qps=$(awk -F'=' '/^tps/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); split($2,a," "); v=a[1]} END{if(v!="") print v}' "$log")
-  if [[ -z "$qps" ]]; then qps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1); fi
+  local qps=""
+  qps=$(awk '/^tps[ =]/ {for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' "$log" 2>/dev/null | head -1)
+  [[ -z "$qps" ]] && qps=$(grep -i "tps" "$log" | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
+  [[ -z "$qps" ]] && qps=$(awk '/transactions|queries/ {print $(NF-1)}' "$log" | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
+  [[ -n "$qps" ]] && qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
   if [[ -n "$qps" ]]; then echo "   Load QPS (light): ${qps}"; fi
 }
 
@@ -384,8 +388,11 @@ failover_under_load_level() {
   sleep 10
   measure_failover && pass "Failover under load (${label} QPS) measured" || fail "Failover under load (${label} QPS) failed to measure"
   wait $bench_pid 2>/dev/null || true
-  local qps=$(awk -F'=' '/^tps/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); split($2,a," "); v=a[1]} END{if(v!="") print v}' "$log")
-  if [[ -z "$qps" ]]; then qps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1); fi
+  local qps=""
+  qps=$(awk '/^tps[ =]/ {for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' "$log" 2>/dev/null | head -1)
+  [[ -z "$qps" ]] && qps=$(grep -i "tps" "$log" | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
+  [[ -z "$qps" ]] && qps=$(awk '/transactions|queries/ {print $(NF-1)}' "$log" | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
+  [[ -n "$qps" ]] && qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
   if [[ -n "$qps" ]]; then echo "   Load QPS (${label}): ${qps}"; fi
 }
 
@@ -425,9 +432,17 @@ profile_failover_qps() {
     local dur="$FAILOVER_DUR" desc="$FAILOVER_DESC"
     pass "Failover under load (${label} QPS) measured"
     wait $bench_pid 2>/dev/null || true
-    # Robust QPS parse: prefer 'tps = NNN' line (pgbench still calls it tps even in -S mode), fallback to legacy format
-    local qps=$(awk -F'=' '/^tps/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); split($2,a," "); v=a[1]} END{if(v!="") print v}' "$log")
-    if [[ -z "$qps" ]]; then qps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1); fi
+    # Robust QPS parse: pgbench -S mode still outputs as "tps" but it's actually QPS
+    # Try multiple parsing strategies:
+    local qps=""
+    # Strategy 1: Look for "tps = NNN" line (most common format)
+    qps=$(awk '/^tps[ =]/ {for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' "$log" 2>/dev/null | head -1)
+    # Strategy 2: Look for "tps" followed by number in same line
+    [[ -z "$qps" ]] && qps=$(grep -i "tps" "$log" | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
+    # Strategy 3: Look for number near "transactions" or "queries" (legacy format)
+    [[ -z "$qps" ]] && qps=$(awk '/transactions|queries/ {print $(NF-1)}' "$log" | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
+    # Format as integer if decimal
+    [[ -n "$qps" ]] && qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
     echo "   Target: ${label} QPS | Achieved QPS: ${qps:-n/a} | Failover: ${dur}s (${desc})"
   else
     fail "Failover under load (${label} QPS) failed to measure"
