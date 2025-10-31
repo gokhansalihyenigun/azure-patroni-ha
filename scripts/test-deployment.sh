@@ -440,39 +440,62 @@ zone_outage_under_load_3k() {
   local bench_pid=$!
   sleep 10
 
-  # Downtime probe: measure ILB SQL unavailability window
-  local start_fail="" recov="" begin=$(date +%s)
-  for t in $(seq 1 180); do
-    if PGPASSWORD="$POSTGRES_PASS" psql -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then
-      if [[ -n "$start_fail" && -z "$recov" ]]; then recov=$(date +%s); break; fi
-    else
-      if [[ -z "$start_fail" ]]; then start_fail=$(date +%s); fi
-    fi
-    sleep 1
-  done &
-  local probe_pid=$!
+  # Prepare downtime trackers (DB ILB 5432 and PgBouncer ILB 6432)
+  local start_fail_db="" recov_db=""
+  local start_fail_pgb="" recov_pgb=""
 
   # Simulate Zone 1 outage: stop Patroni on pgpatroni-1 via SSH (password auth)
   # Assumes default admin user 'azureuser' and password available in env ADMIN_PASS or defaults
   ADMIN_USER=${ADMIN_USER:-azureuser}
   ADMIN_PASS=${ADMIN_PASS:-Azure123!@#}
+  local ssh_ok=false
   if command -v sshpass >/dev/null 2>&1 || sudo apt-get install -y sshpass >/dev/null 2>&1; then
-    sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 ${ADMIN_USER}@10.50.1.4 'sudo systemctl stop patroni || true; sudo systemctl stop etcd || true' >/dev/null 2>&1 || true
+    if sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 ${ADMIN_USER}@10.50.1.4 'sudo systemctl stop patroni || true; sudo systemctl stop etcd || true' >/dev/null 2>&1; then
+      ssh_ok=true
+    fi
+  fi
+  if [[ "$ssh_ok" != true ]]; then
+    fail "Zone-outage: SSH to Zone1 node failed; set ADMIN_USER/ADMIN_PASS and retry"
+    wait $bench_pid 2>/dev/null || true
+    return 1
   fi
 
-  wait $probe_pid 2>/dev/null || true
+  # Single-loop probe up to 180s capturing first failure and recovery for both endpoints
+  for t in $(seq 1 180); do
+    if PGPASSWORD="$POSTGRES_PASS" psql -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then
+      if [[ -n "$start_fail_db" && -z "$recov_db" ]]; then recov_db=$(date +%s); fi
+    else
+      if [[ -z "$start_fail_db" ]]; then start_fail_db=$(date +%s); fi
+    fi
+
+    if PGPASSWORD="$POSTGRES_PASS" psql -h "$PGB_ILB_IP" -p "$PGB_PORT" -U "$POSTGRES_USER" -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then
+      if [[ -n "$start_fail_pgb" && -z "$recov_pgb" ]]; then recov_pgb=$(date +%s); fi
+    else
+      if [[ -z "$start_fail_pgb" ]]; then start_fail_pgb=$(date +%s); fi
+    fi
+
+    if [[ -n "$recov_db" && -n "$recov_pgb" ]]; then break; fi
+    sleep 1
+  done
+
   wait $bench_pid 2>/dev/null || true
 
   # Output results
   local tps=$(awk -F'=' '/^tps/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); split($2,a," "); v=a[1]} END{if(v!="") print v}' "$log")
   if [[ -z "$tps" ]]; then tps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1); fi
-  if [[ -n "$start_fail" && -n "$recov" ]]; then
-    local dt=$((recov-start_fail))
-    echo "   Zone1 outage under load: Achieved TPS: ${tps:-n/a} | Observed downtime: ${dt}s"
+  # Compute downtimes (0s if never failed; 'unrecovered' if failed but not recovered)
+  local dt_db="0" dt_pgb="0"
+  if [[ -n "$start_fail_db" && -n "$recov_db" ]]; then dt_db=$((recov_db-start_fail_db)); fi
+  if [[ -n "$start_fail_pgb" && -n "$recov_pgb" ]]; then dt_pgb=$((recov_pgb-start_fail_pgb)); fi
+  local tag_db="$dt_db"; local tag_pgb="$dt_pgb"
+  if [[ -n "$start_fail_db" && -z "$recov_db" ]]; then tag_db="unrecovered"; fi
+  if [[ -n "$start_fail_pgb" && -z "$recov_pgb" ]]; then tag_pgb="unrecovered"; fi
+
+  echo "   Zone1 outage under load: Achieved TPS: ${tps:-n/a} | Downtime DB: ${tag_db} | Downtime PgBouncer: ${tag_pgb}"
+  if [[ "$tag_db" != "unrecovered" && "$tag_pgb" != "unrecovered" ]]; then
     pass "Zone-outage failover measured"
   else
-    echo "   Zone1 outage under load: Achieved TPS: ${tps:-n/a} | Observed downtime: n/a"
-    fail "Zone-outage failover not fully measured"
+    fail "Zone-outage failover not fully recovered within timeout"
   fi
 }
 
