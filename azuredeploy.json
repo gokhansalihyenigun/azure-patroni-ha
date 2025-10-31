@@ -202,8 +202,7 @@
       "properties": {
         "publicIPAllocationMethod": "Static",
         "publicIPAddressVersion": "IPv4"
-      },
-      "zones": []
+      }
     },
     {
       "type": "Microsoft.Network/natGateways",
@@ -221,7 +220,6 @@
         ],
         "idleTimeoutInMinutes": 4
       },
-      "zones": [],
       "dependsOn": [
         "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))]"
       ]
