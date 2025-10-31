@@ -29,14 +29,35 @@ ssh_cmd() {
 if ! command -v sshpass >/dev/null 2>&1; then
   echo "=== Installing sshpass ==="
   if command -v apt-get >/dev/null 2>&1; then
-    apt-get update -qq >/dev/null 2>&1 || true
-    DEBIAN_FRONTEND=noninteractive apt-get install -y sshpass >/dev/null 2>&1 || {
-      echo "Warning: Could not install sshpass. Will try SSH without password."
-    }
+    if [[ $EUID -eq 0 ]]; then
+      apt-get update -qq >/dev/null 2>&1 || true
+      DEBIAN_FRONTEND=noninteractive apt-get install -y sshpass >/dev/null 2>&1 || {
+        echo "Warning: Could not install sshpass. Will try SSH without password."
+      }
+    else
+      sudo apt-get update -qq >/dev/null 2>&1 || true
+      DEBIAN_FRONTEND=noninteractive sudo apt-get install -y sshpass >/dev/null 2>&1 || {
+        echo "Warning: Could not install sshpass. Will try SSH without password."
+      }
+    fi
   elif command -v yum >/dev/null 2>&1; then
-    yum install -y sshpass >/dev/null 2>&1 || {
-      echo "Warning: Could not install sshpass. Will try SSH without password."
-    }
+    if [[ $EUID -eq 0 ]]; then
+      yum install -y sshpass >/dev/null 2>&1 || {
+        echo "Warning: Could not install sshpass. Will try SSH without password."
+      }
+    else
+      sudo yum install -y sshpass >/dev/null 2>&1 || {
+        echo "Warning: Could not install sshpass. Will try SSH without password."
+      }
+    fi
+  fi
+  
+  # Verify installation
+  if ! command -v sshpass >/dev/null 2>&1; then
+    echo "⚠️  sshpass installation failed or not available. Script will attempt SSH with password authentication."
+    echo "   You may need to install manually: sudo apt-get install -y sshpass"
+  else
+    echo "✓ sshpass installed successfully"
   fi
 fi
 
