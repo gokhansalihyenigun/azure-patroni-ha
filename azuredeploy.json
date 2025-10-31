@@ -221,6 +221,7 @@
         ],
         "idleTimeoutInMinutes": 4
       },
+      "zones": [],
       "dependsOn": [
         "[resourceId('Microsoft.Network/publicIPAddresses', variables('publicIpName'))]"
       ]
