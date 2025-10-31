@@ -209,7 +209,7 @@ measure_failover() {
   local cluster_json leader candidate leader_ip candidate_ip start end dur
   # Discover leader and best candidate with retries across both nodes (tolerate 503 under load)
   leader=""; candidate=""
-  for attempt in $(seq 1 30); do
+  for attempt in $(seq 1 60); do
     for ip in "${DB_NODES[@]}"; do
       out=$(curl -fsS "http://$ip:$PATRONI_API_PORT/cluster" 2>/dev/null || true)
       [[ -z "$out" ]] && continue
@@ -217,7 +217,7 @@ measure_failover() {
       c=$(echo "$out" | jq -r '.members[] | select(.role!="leader" and ((.role=="sync_standby") or (.state=="running"))) | .name' 2>/dev/null | head -1 || echo "")
       if [[ -n "$l" && -n "$c" ]]; then leader="$l"; candidate="$c"; break 2; fi
     done
-    sleep 1
+    sleep 2
   done
   if [[ -z "$leader" || -z "$candidate" ]]; then
     fail "Failover: cannot determine leader/candidate"
@@ -382,7 +382,21 @@ profile_failover_tps() {
   if (( jobs_use > maxj )); then jobs_use=$maxj; fi
   PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c "$clients" -j "$jobs_use" -P 2 -T "$t" -N -M simple >"$log" 2>&1 &
   local bench_pid=$!
-  sleep 5
+  sleep 10
+  # Warm-up: ensure cluster shows leader and a running replica before switchover
+  warm_ok=false
+  for k in $(seq 1 30); do
+    ok_l=; ok_c=
+    for ip in "${DB_NODES[@]}"; do
+      out=$(curl -fsS "http://$ip:$PATRONI_API_PORT/cluster" 2>/dev/null || true)
+      [[ -z "$out" ]] && continue
+      l=$(echo "$out" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || echo "")
+      c=$(echo "$out" | jq -r '.members[] | select(.role!="leader" and (.state=="running")) | .name' 2>/dev/null | head -1 || echo "")
+      if [[ -n "$l" && -n "$c" ]]; then ok_l=$l; ok_c=$c; break; fi
+    done
+    if [[ -n "$ok_l" && -n "$ok_c" ]]; then warm_ok=true; break; fi
+    sleep 1
+  done
   if measure_failover; then
     local dur="$FAILOVER_DUR" desc="$FAILOVER_DESC"
     pass "Failover under load (${label}) measured"
