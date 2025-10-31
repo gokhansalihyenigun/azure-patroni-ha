@@ -56,7 +56,7 @@ ensure_jq() {
 
 ensure_pgbench() {
   command -v pgbench >/dev/null 2>&1 || {
-    if command -v apt-get >/devnull 2>&1; then
+    if command -v apt-get >/dev/null 2>&1; then
       sudo apt-get update -y >/dev/null 2>&1 || true
       sudo apt-get install -y postgresql-contrib >/dev/null 2>&1 || true
     fi
