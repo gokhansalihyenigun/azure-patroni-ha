@@ -83,21 +83,42 @@ UNIT
   - systemctl daemon-reload
   - systemctl enable pgbouncer
   - |
+    # PostgreSQL ILB'nin hazır olmasını bekle (en fazla 5 dakika)
+    DB_ILB="10.50.1.10"
+    echo "Waiting for PostgreSQL ILB ($DB_ILB) to be ready..."
+    for i in {1..60}; do
+      if timeout 2 bash -c "echo > /dev/tcp/$DB_ILB/5432" 2>/dev/null; then
+        echo "PostgreSQL ILB is ready!"
+        break
+      fi
+      if [ $i -eq 60 ]; then
+        echo "WARNING: PostgreSQL ILB not ready after 5 minutes, continuing anyway..."
+      fi
+      sleep 5
+    done
     # PgBouncer servisini başlat ve hazır olana kadar bekle
     systemctl start pgbouncer || true
     sleep 2
-    # Servis başarısızsa retry
+    # Servis başarısızsa retry (en fazla 10 deneme, 30 saniye)
     for i in {1..10}; do
       if systemctl is-active --quiet pgbouncer && ss -lntp | grep -q :6432; then
+        echo "PgBouncer is active and listening on port 6432"
         break
       fi
+      echo "PgBouncer retry attempt $i/10..."
       systemctl restart pgbouncer || true
       sleep 3
     done
     # Son kontrol ve gerekirse restart
     if ! systemctl is-active --quiet pgbouncer; then
+      echo "WARNING: PgBouncer is not active, attempting final restart..."
       systemctl restart pgbouncer
-      sleep 2
+      sleep 3
     fi
-    # Servis durumunu logla
-    systemctl status pgbouncer --no-pager || true
+    # Port kontrolü
+    if ! ss -lntp | grep -q :6432; then
+      echo "ERROR: PgBouncer is not listening on port 6432"
+      systemctl status pgbouncer --no-pager || true
+    else
+      echo "SUCCESS: PgBouncer is running and listening on port 6432"
+    fi
