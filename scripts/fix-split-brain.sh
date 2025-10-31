@@ -18,10 +18,11 @@ echo ""
 echo "⚠️  WARNING: This will stop and clear data on one node!"
 echo ""
 
-# Support non-interactive mode via environment variable
-if [[ "${AUTO_CONFIRM:-}" == "yes" ]]; then
+# Support non-interactive mode: if stdin is not a TTY (piped), auto-confirm
+# Also check AUTO_CONFIRM environment variable
+if [[ ! -t 0 ]] || [[ "${AUTO_CONFIRM:-}" == "yes" ]]; then
   confirm="yes"
-  echo "AUTO_CONFIRM=yes detected, proceeding automatically..."
+  echo "Non-interactive mode detected, proceeding automatically..."
 else
   read -p "Continue? (yes/no): " confirm
 fi
