@@ -167,58 +167,79 @@ UNITFILE
       systemctl daemon-reload
     fi
   - |
-    # PostgreSQL ILB'nin hazır olmasını bekle (en fazla 5 dakika)
+    # PostgreSQL ILB'nin hazır olmasını bekle (en fazla 10 dakika)
     DB_ILB="10.50.1.10"
     echo "Waiting for PostgreSQL ILB ($DB_ILB) to be ready..."
-    for i in {1..60}; do
-      if timeout 2 bash -c "echo > /dev/tcp/$DB_ILB/5432" 2>/dev/null; then
-        echo "PostgreSQL ILB is ready!"
-        break
+    DB_READY=false
+    for i in {1..120}; do
+      if timeout 3 bash -c "echo > /dev/tcp/$DB_ILB/5432" 2>/dev/null; then
+        # Also test actual PostgreSQL connection
+        if PGPASSWORD='ChangeMe123Pass' timeout 3 psql -h "$DB_ILB" -p 5432 -U postgres -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
+          echo "PostgreSQL ILB is ready and accepting connections!"
+          DB_READY=true
+          break
+        fi
       fi
-      if [ $i -eq 60 ]; then
-        echo "WARNING: PostgreSQL ILB not ready after 5 minutes, continuing anyway..."
+      if [ $((i % 12)) -eq 0 ]; then
+        echo "Still waiting for PostgreSQL ILB... ($((i * 5))s elapsed)"
       fi
       sleep 5
     done
-    # PgBouncer servisini başlat ve hazır olana kadar bekle
-    systemctl start pgbouncer || true
-    sleep 2
-    # Servis başarısızsa retry (en fazla 10 deneme, 30 saniye)
-    for i in {1..10}; do
-      if systemctl is-active --quiet pgbouncer && ss -lntp | grep -q :6432; then
-        echo "PgBouncer is active and listening on port 6432"
-        break
-      fi
-      echo "PgBouncer retry attempt $i/10..."
-      systemctl restart pgbouncer || true
-      sleep 3
-    done
-    # Son kontrol ve gerekirse restart
-    if ! systemctl is-active --quiet pgbouncer; then
-      echo "WARNING: PgBouncer is not active, attempting final restart..."
-      systemctl restart pgbouncer
-      sleep 3
+    if [ "$DB_READY" != "true" ]; then
+      echo "WARNING: PostgreSQL ILB not fully ready after 10 minutes, will continue anyway..."
     fi
-    # Port kontrolü
-    if ! ss -lntp | grep -q :6432; then
-      echo "ERROR: PgBouncer is not listening on port 6432"
-      systemctl status pgbouncer --no-pager || true
-      journalctl -u pgbouncer -n 20 --no-pager || true
-    else
-      echo "SUCCESS: PgBouncer is running and listening on port 6432"
-      # Backend bağlantısını test et
-      sleep 2
-      if PGPASSWORD='ChangeMe123Pass' psql -h 127.0.0.1 -p 6432 -U postgres -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
-        echo "SUCCESS: PgBouncer can connect to backend PostgreSQL"
-      else
-        echo "WARNING: PgBouncer started but cannot connect to backend PostgreSQL yet"
-        # Backend hazır olana kadar retry
-        for retry in {1..20}; do
+  - |
+    # PgBouncer servisini başlat ve hazır olana kadar bekle
+    echo "Starting PgBouncer service..."
+    systemctl start pgbouncer || true
+    sleep 5
+    
+    # Servis başarısızsa retry (en fazla 20 deneme, 2 dakika)
+    PGB_READY=false
+    for i in {1..20}; do
+      if systemctl is-active --quiet pgbouncer; then
+        if ss -lntp | grep -q :6432; then
+          echo "PgBouncer is active and listening on port 6432"
+          # Test backend connection through PgBouncer
           sleep 3
-          if PGPASSWORD='ChangeMe123Pass' psql -h 127.0.0.1 -p 6432 -U postgres -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
-            echo "SUCCESS: Backend connection established after retry"
+          if PGPASSWORD='ChangeMe123Pass' timeout 5 psql -h 127.0.0.1 -p 6432 -U postgres -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
+            echo "SUCCESS: PgBouncer is running and can connect to backend PostgreSQL"
+            PGB_READY=true
             break
+          else
+            echo "PgBouncer listening but backend connection not ready yet, waiting..."
+            sleep 5
           fi
-        done
+        else
+          echo "PgBouncer service active but port 6432 not listening, waiting..."
+          sleep 3
+        fi
+      else
+        echo "PgBouncer service not active, attempting restart ($i/20)..."
+        systemctl restart pgbouncer || true
+        sleep 5
       fi
+    done
+    
+    # Final verification
+    if [ "$PGB_READY" != "true" ]; then
+      echo "WARNING: PgBouncer may not be fully ready"
+      echo "Service status:"
+      systemctl status pgbouncer --no-pager || true
+      echo "Port check:"
+      ss -lntp | grep 6432 || echo "Port 6432 not listening"
+      echo "Recent logs:"
+      journalctl -u pgbouncer -n 30 --no-pager || true
+      # Try one more restart
+      echo "Attempting final restart..."
+      systemctl restart pgbouncer
+      sleep 5
+    fi
+    
+    # Final health check
+    if systemctl is-active --quiet pgbouncer && ss -lntp | grep -q :6432; then
+      echo "✓ PgBouncer service is running"
+    else
+      echo "✗ PgBouncer service failed to start properly"
+      exit 1
     fi
