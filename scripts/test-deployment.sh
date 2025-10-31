@@ -520,19 +520,30 @@ profile_failover_qps() {
     pass "Failover under load (${label} QPS) measured"
     wait $bench_pid 2>/dev/null || true
     # Robust QPS parse: pgbench -S mode still outputs as "tps" but it's actually QPS
-    # Try multiple parsing strategies:
+    # Try multiple parsing strategies, prioritizing larger numbers (QPS should be high)
     local qps=""
-    # Strategy 1: Look for "tps = NNN" line (most common format)
-    qps=$(grep -E "^tps\s*=" "$log" 2>/dev/null | awk -F'=' '{print $2}' | awk '{print $1}' | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
-    # Strategy 2: Look for "tps" followed by number in same line
-    [[ -z "$qps" ]] && qps=$(grep -iE "tps.*[0-9]" "$log" 2>/dev/null | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
+    # Strategy 1: Look for "tps = NNN" line (most common format) - extract the number after =
+    qps=$(grep -E "^tps\s*=" "$log" 2>/dev/null | sed 's/^tps\s*=\s*//' | awk '{print $1}' | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
+    # Strategy 2: Look for "tps" followed by number in same line, prefer larger numbers
+    if [[ -z "$qps" ]] || [[ -z $(echo "$qps" | grep -E '^[0-9]{3,}') ]]; then
+      local temp_qps=$(grep -iE "tps.*[0-9]+" "$log" 2>/dev/null | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]{3,}\.?[0-9]*$/){print $i; exit}}}' | head -1)
+      [[ -n "$temp_qps" ]] && qps="$temp_qps"
+    fi
     # Strategy 3: Look for number near "transactions" or "queries" (legacy format)
-    [[ -z "$qps" ]] && qps=$(grep -iE "transactions.*[0-9]|queries.*[0-9]" "$log" 2>/dev/null | awk '{print $(NF-1)}' | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
-    # Strategy 4: Try to extract from final summary line
-    [[ -z "$qps" ]] && qps=$(tail -5 "$log" | grep -oE '[0-9]+\.[0-9]+' | head -1)
-    # Format as integer if decimal
-    if [[ -n "$qps" ]] && [[ "$qps" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+    if [[ -z "$qps" ]] || [[ -z $(echo "$qps" | grep -E '^[0-9]{3,}') ]]; then
+      local temp_qps=$(grep -iE "transactions.*[0-9]+|queries.*[0-9]+" "$log" 2>/dev/null | grep -oE '[0-9]{3,}\.?[0-9]*' | head -1)
+      [[ -n "$temp_qps" ]] && qps="$temp_qps"
+    fi
+    # Strategy 4: Try to extract largest number from final summary lines (QPS should be > 1000)
+    if [[ -z "$qps" ]] || [[ -z $(echo "$qps" | grep -E '^[0-9]{3,}') ]]; then
+      local temp_qps=$(tail -10 "$log" | grep -oE '[0-9]{3,}\.[0-9]+' | head -1)
+      [[ -n "$temp_qps" ]] && qps="$temp_qps"
+    fi
+    # Format as integer if decimal, but only if we found a reasonable QPS value (> 100)
+    if [[ -n "$qps" ]] && [[ "$qps" =~ ^[0-9]+\.?[0-9]*$ ]] && (( $(echo "$qps" | cut -d. -f1) > 100 )); then
       qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
+    else
+      qps=""  # Invalid or too small, treat as missing
     fi
     echo "   Target: ${label} QPS | Achieved QPS: ${qps:-n/a} | Failover: ${dur}s (${desc})"
   else
