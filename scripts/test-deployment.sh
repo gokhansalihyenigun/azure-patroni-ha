@@ -257,7 +257,7 @@ fi
 
 say "Performance (optional)"
 if ensure_pgbench >/dev/null 2>&1; then
-  if pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 5 -c 4 -M simple >/dev/null 2>&1; then
+  if PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 5 -c 4 -M simple >/dev/null 2>&1; then
     pass "Performance test ran"
   else
     fail "Performance test failed"
