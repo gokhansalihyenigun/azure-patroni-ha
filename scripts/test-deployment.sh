@@ -417,6 +417,67 @@ profile_failover_tps 2000 64 16 || true
 profile_failover_tps 4000 128 32 || true
 profile_failover_tps 8000 256 64 || true
 
+# Zone outage simulation under ~3000 QPS
+zone_outage_under_load_3k() {
+  say "Zone outage under ~3000 QPS (simulate Zone 1 down)"
+  ensure_pgbench_init || true
+
+  # Ensure leader is pgpatroni-1 (Zone 1)
+  cur_leader=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || echo "")
+  if [[ "$cur_leader" != "pgpatroni-1" ]]; then
+    say "Switching leader to pgpatroni-1 before outage"
+    DB_NODES=(10.50.1.4 10.50.1.5) # ensure order
+    leader="pgpatroni-2"; candidate="pgpatroni-1"; leader_ip=10.50.1.5
+    curl -s -o /dev/null -w "%{http_code}" -X POST "http://${leader_ip}:$PATRONI_API_PORT/switchover" \
+      -H 'Content-Type: application/json' -d '{"leader":"pgpatroni-2","candidate":"pgpatroni-1"}' >/dev/null || true
+    retry 60 1 bash -lc "curl -fsS http://10.50.1.4:$PATRONI_API_PORT/role | grep -q '^leader$'" || true
+  fi
+
+  # Start ~3k QPS attempt via PgBouncer ILB (adjust concurrency as needed)
+  local log="/tmp/pgbench_zone3k.log"
+  : > "$log"
+  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$PGB_ILB_IP" -p "$PGB_PORT" -U "$POSTGRES_USER" -d postgres -N -P 2 -T 90 -c 200 -j 32 >"$log" 2>&1 &
+  local bench_pid=$!
+  sleep 10
+
+  # Downtime probe: measure ILB SQL unavailability window
+  local start_fail="" recov="" begin=$(date +%s)
+  for t in $(seq 1 180); do
+    if PGPASSWORD="$POSTGRES_PASS" psql -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -Atqc 'SELECT 1' >/dev/null 2>&1; then
+      if [[ -n "$start_fail" && -z "$recov" ]]; then recov=$(date +%s); break; fi
+    else
+      if [[ -z "$start_fail" ]]; then start_fail=$(date +%s); fi
+    fi
+    sleep 1
+  done &
+  local probe_pid=$!
+
+  # Simulate Zone 1 outage: stop Patroni on pgpatroni-1 via SSH (password auth)
+  # Assumes default admin user 'azureuser' and password available in env ADMIN_PASS or defaults
+  ADMIN_USER=${ADMIN_USER:-azureuser}
+  ADMIN_PASS=${ADMIN_PASS:-Azure123!@#}
+  if command -v sshpass >/dev/null 2>&1 || sudo apt-get install -y sshpass >/dev/null 2>&1; then
+    sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 ${ADMIN_USER}@10.50.1.4 'sudo systemctl stop patroni || true; sudo systemctl stop etcd || true' >/dev/null 2>&1 || true
+  fi
+
+  wait $probe_pid 2>/dev/null || true
+  wait $bench_pid 2>/dev/null || true
+
+  # Output results
+  local tps=$(awk -F'=' '/^tps/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); split($2,a," "); v=a[1]} END{if(v!="") print v}' "$log")
+  if [[ -z "$tps" ]]; then tps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1); fi
+  if [[ -n "$start_fail" && -n "$recov" ]]; then
+    local dt=$((recov-start_fail))
+    echo "   Zone1 outage under load: Achieved TPS: ${tps:-n/a} | Observed downtime: ${dt}s"
+    pass "Zone-outage failover measured"
+  else
+    echo "   Zone1 outage under load: Achieved TPS: ${tps:-n/a} | Observed downtime: n/a"
+    fail "Zone-outage failover not fully measured"
+  fi
+}
+
+zone_outage_under_load_3k || true
+
 exit 0
 
 #!/bin/bash
