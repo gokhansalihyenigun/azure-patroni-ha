@@ -76,9 +76,16 @@ ensure_pgbench_init() {
   # initialize pgbench tables once so TPC-B workload doesn't fail
   command -v pgbench >/dev/null 2>&1 || return 1
   local stamp="/tmp/.pgbench_inited"
+  # Verify tables actually exist before skipping
   if [[ -f "$stamp" ]]; then
-    say "pgbench tables already initialized, skipping..."
-    return 0
+    # Check if tables actually exist
+    if PGPASSWORD="$POSTGRES_PASS" psql -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -tAc "SELECT COUNT(*) FROM pg_tables WHERE schemaname='public' AND tablename='pgbench_branches';" 2>/dev/null | grep -q "^1$"; then
+      say "pgbench tables already initialized, skipping..."
+      return 0
+    else
+      say "Stamp file exists but tables missing, re-initializing..."
+      rm -f "$stamp"
+    fi
   fi
   say "Initializing pgbench tables with scale 10 (this may take 1-2 minutes)..."
   set +e
@@ -101,10 +108,18 @@ ensure_pgbench_init() {
     init_exit=$?
   fi
   set -e
+  # Verify tables were actually created
   if [[ $init_exit -eq 0 ]]; then
-    date +%s > "$stamp"
-    say "pgbench tables initialized successfully"
-    return 0
+    if PGPASSWORD="$POSTGRES_PASS" psql -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -tAc "SELECT COUNT(*) FROM pg_tables WHERE schemaname='public' AND tablename='pgbench_branches';" 2>/dev/null | grep -q "^1$"; then
+      date +%s > "$stamp"
+      say "pgbench tables initialized successfully"
+      return 0
+    else
+      say "pgbench initialization appeared successful but tables not found"
+      say "Last 10 lines of initialization output:"
+      tail -10 /tmp/pgbench_init.log 2>/dev/null || true
+      return 1
+    fi
   else
     say "pgbench initialization failed or timed out (exit code: $init_exit)"
     say "Last 10 lines of initialization output:"
@@ -429,10 +444,14 @@ failover_under_load() {
   # wait for pgbench to finish to capture QPS
   wait $bench_pid 2>/dev/null || true
   local qps=""
-  qps=$(awk '/^tps[ =]/ {for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' "$log" 2>/dev/null | head -1)
-  [[ -z "$qps" ]] && qps=$(grep -i "tps" "$log" | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
-  [[ -z "$qps" ]] && qps=$(awk '/transactions|queries/ {print $(NF-1)}' "$log" | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
-  [[ -n "$qps" ]] && qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
+  # Robust QPS parsing with multiple strategies
+  qps=$(grep -E "^tps\s*=" "$log" 2>/dev/null | awk -F'=' '{print $2}' | awk '{print $1}' | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
+  [[ -z "$qps" ]] && qps=$(grep -iE "tps.*[0-9]" "$log" 2>/dev/null | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
+  [[ -z "$qps" ]] && qps=$(grep -iE "transactions.*[0-9]|queries.*[0-9]" "$log" 2>/dev/null | awk '{print $(NF-1)}' | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
+  [[ -z "$qps" ]] && qps=$(tail -5 "$log" | grep -oE '[0-9]+\.[0-9]+' | head -1)
+  if [[ -n "$qps" ]] && [[ "$qps" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+    qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
+  fi
   if [[ -n "$qps" ]]; then echo "   Load QPS (light): ${qps}"; fi
 }
 
@@ -502,13 +521,17 @@ profile_failover_qps() {
     # Try multiple parsing strategies:
     local qps=""
     # Strategy 1: Look for "tps = NNN" line (most common format)
-    qps=$(awk '/^tps[ =]/ {for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' "$log" 2>/dev/null | head -1)
+    qps=$(grep -E "^tps\s*=" "$log" 2>/dev/null | awk -F'=' '{print $2}' | awk '{print $1}' | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
     # Strategy 2: Look for "tps" followed by number in same line
-    [[ -z "$qps" ]] && qps=$(grep -i "tps" "$log" | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
+    [[ -z "$qps" ]] && qps=$(grep -iE "tps.*[0-9]" "$log" 2>/dev/null | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
     # Strategy 3: Look for number near "transactions" or "queries" (legacy format)
-    [[ -z "$qps" ]] && qps=$(awk '/transactions|queries/ {print $(NF-1)}' "$log" | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
+    [[ -z "$qps" ]] && qps=$(grep -iE "transactions.*[0-9]|queries.*[0-9]" "$log" 2>/dev/null | awk '{print $(NF-1)}' | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
+    # Strategy 4: Try to extract from final summary line
+    [[ -z "$qps" ]] && qps=$(tail -5 "$log" | grep -oE '[0-9]+\.[0-9]+' | head -1)
     # Format as integer if decimal
-    [[ -n "$qps" ]] && qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
+    if [[ -n "$qps" ]] && [[ "$qps" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+      qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
+    fi
     echo "   Target: ${label} QPS | Achieved QPS: ${qps:-n/a} | Failover: ${dur}s (${desc})"
   else
     fail "Failover under load (${label} QPS) failed to measure"
