@@ -387,13 +387,13 @@ failover_under_load_level() {
   if [[ -n "$tps" ]]; then echo "   Load TPS (${label}): ${tps}"; fi
 }
 
-# Targeted TPS profiles (approximate via higher concurrency). Results show achieved TPS.
-profile_failover_tps() {
+# Targeted QPS profiles (Query Per Second - SELECT-only). Results show achieved QPS.
+profile_failover_qps() {
   local label="$1"; shift
   local clients="$1"; shift
   local jobs="$1"; shift
   local t=60
-  say "Failover under load (target ${label})"
+  say "Failover under load (target ${label} QPS)"
   ensure_pgbench_init || true
   local log="/tmp/pgbench_load_${label}.log"
   : > "$log"
@@ -401,7 +401,8 @@ profile_failover_tps() {
   local maxj=$(nproc 2>/dev/null || echo 4)
   local jobs_use=$jobs
   if (( jobs_use > maxj )); then jobs_use=$maxj; fi
-  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c "$clients" -j "$jobs_use" -P 2 -T "$t" -N -M simple >"$log" 2>&1 &
+  # -S flag: SELECT-only mode (queries, not transactions) - measures QPS
+  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c "$clients" -j "$jobs_use" -P 2 -T "$t" -S -M simple >"$log" 2>&1 &
   local bench_pid=$!
   sleep 10
   # Warm-up: ensure cluster shows leader and a running replica before switchover
@@ -420,24 +421,24 @@ profile_failover_tps() {
   done
   if measure_failover; then
     local dur="$FAILOVER_DUR" desc="$FAILOVER_DESC"
-    pass "Failover under load (${label}) measured"
+    pass "Failover under load (${label} QPS) measured"
     wait $bench_pid 2>/dev/null || true
     # Robust TPS parse: prefer 'tps = NNN' line, fallback to legacy format
-    local tps=$(awk -F'=' '/^tps/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); split($2,a," "); v=a[1]} END{if(v!="") print v}' "$log")
-    if [[ -z "$tps" ]]; then tps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1); fi
-    echo "   Target: ${label} | Achieved TPS: ${tps:-n/a} | Failover: ${dur}s (${desc})"
+    local qps=$(awk -F'=' '/^tps/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); split($2,a," "); v=a[1]} END{if(v!="") print v}' "$log")
+    if [[ -z "$qps" ]]; then qps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1); fi
+    echo "   Target: ${label} QPS | Achieved QPS: ${qps:-n/a} | Failover: ${dur}s (${desc})"
   else
-    fail "Failover under load (${label}) failed to measure"
+    fail "Failover under load (${label} QPS) failed to measure"
     kill $bench_pid >/dev/null 2>&1 || true
     wait $bench_pid 2>/dev/null || true
   fi
 }
 
-# Approximate client/job settings for 2k/3k/4k/8k TPS targets; adjust per VM size.
-profile_failover_tps 2000 64 16 || true
-profile_failover_tps 3000 96 24 || true
-profile_failover_tps 4000 128 32 || true
-profile_failover_tps 8000 256 64 || true
+# Approximate client/job settings for 2k/3k/4k/8k QPS targets (SELECT-only queries); adjust per VM size.
+profile_failover_qps 2000 64 16 || true
+profile_failover_qps 3000 96 24 || true
+profile_failover_qps 4000 128 32 || true
+profile_failover_qps 8000 256 64 || true
 
  
 
