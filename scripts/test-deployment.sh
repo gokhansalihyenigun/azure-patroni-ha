@@ -55,13 +55,21 @@ ensure_jq() {
 }
 
 ensure_pgbench() {
-  command -v pgbench >/dev/null 2>&1 || {
-    if command -v apt-get >/dev/null 2>&1; then
-      sudo apt-get update -y >/dev/null 2>&1 || true
-      sudo apt-get install -y postgresql-contrib >/dev/null 2>&1 || true
-    fi
-  }
-  command -v pgbench >/dev/null 2>&1
+  if command -v pgbench >/dev/null 2>&1; then
+    return 0
+  fi
+  say "Installing pgbench..."
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update -y >/dev/null 2>&1 || true
+    sudo apt-get install -y postgresql-contrib >/dev/null 2>&1 || true
+  fi
+  if command -v pgbench >/dev/null 2>&1; then
+    say "pgbench installed successfully"
+    return 0
+  else
+    say "pgbench installation failed or not available"
+    return 1
+  fi
 }
 
 ensure_pgbench_init() {
