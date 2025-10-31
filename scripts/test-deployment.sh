@@ -222,10 +222,8 @@ measure_failover() {
     return 1
   fi
 
-  # Wait for new leader and SQL ready
-  if retry 40 1 bash -lc "curl -fsS http://${candidate_ip}:$PATRONI_API_PORT/role | grep -q '^leader$'"; then
-    :
-  else
+  # Wait for new leader and SQL ready (poll cluster view to avoid 503 on candidate API)
+  if ! retry 120 1 bash -lc "curl -fsS http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster | jq -r '.members[] | select(.role==\"leader\") | .name' | grep -q '^${candidate}$'"; then
     fail "Failover: candidate did not become leader in time"
     return 1
   fi
