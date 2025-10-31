@@ -459,11 +459,6 @@ failover_under_load() {
 
 failover_under_load || true
 
-# Zero Data Loss Test (RPO=0 validation with write transactions)
-if ensure_jq >/dev/null 2>&1 && ensure_pgbench >/dev/null 2>&1; then
-  test_zero_data_loss || true
-fi
-
 # Multi-level failover under load (light/medium/heavy)
 failover_under_load_level() {
   local label="$1"; shift
@@ -489,6 +484,7 @@ failover_under_load_level() {
 }
 
 # Zero Data Loss Test: Write transactions during failover
+# Note: This function must be defined before it's called
 test_zero_data_loss() {
   if ! ensure_pgbench; then
     say "pgbench not available, skipping zero data loss test"
