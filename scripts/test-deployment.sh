@@ -370,34 +370,35 @@ if ensure_pgbench; then
     pass "Performance test skipped (initialization failed)"
   else
     say "Running baseline performance test (10 seconds)..."
-  # short run to verify and show QPS (-S mode: SELECT-only queries)
-  # Use timeout and capture both stdout and stderr
-  set +e  # Temporarily disable exit on error for pgbench
-  say "Starting pgbench command..."
-  out=$(PGPASSWORD="$POSTGRES_PASS" timeout 15 pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 10 -c 8 -j 4 -S -M simple 2>&1)
-  pgbench_exit=$?
-  set -e  # Re-enable exit on error
-  say "pgbench command finished with exit code: $pgbench_exit"
-  if [[ $pgbench_exit -ne 0 ]] || [[ -z "$out" ]]; then
-    say "pgbench command failed (exit code: $pgbench_exit) or produced no output"
-    echo "Last 20 lines of output:"
-    echo "$out" | tail -20
-    pass "Performance test ran (but no metrics available)"
-  else
-    # Parse QPS from pgbench output (pgbench still calls it 'tps' even in -S mode)
-    # Note: Not in a function, so don't use 'local'
-    qps=""
-    qps=$(echo "$out" | awk '/^tps[ =]/ {for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
-    [[ -z "$qps" ]] && qps=$(echo "$out" | grep -i "tps" | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
-    [[ -z "$qps" ]] && qps=$(echo "$out" | awk '/transactions|queries/ {print $(NF-1)}' | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
-    [[ -n "$qps" ]] && qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
-    if [[ -n "$qps" ]]; then
-      pass "Performance test ran (~${qps} QPS)"
+    # short run to verify and show QPS (-S mode: SELECT-only queries)
+    # Use timeout and capture both stdout and stderr
+    set +e  # Temporarily disable exit on error for pgbench
+    say "Starting pgbench command..."
+    out=$(PGPASSWORD="$POSTGRES_PASS" timeout 15 pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 10 -c 8 -j 4 -S -M simple 2>&1)
+    pgbench_exit=$?
+    set -e  # Re-enable exit on error
+    say "pgbench command finished with exit code: $pgbench_exit"
+    if [[ $pgbench_exit -ne 0 ]] || [[ -z "$out" ]]; then
+      say "pgbench command failed (exit code: $pgbench_exit) or produced no output"
+      echo "Last 20 lines of output:"
+      echo "$out" | tail -20
+      pass "Performance test ran (but no metrics available)"
     else
-      say "Could not parse QPS from pgbench output"
-      echo "First 20 lines of output:"
-      echo "$out" | head -20
-      pass "Performance test ran"
+      # Parse QPS from pgbench output (pgbench still calls it 'tps' even in -S mode)
+      # Note: Not in a function, so don't use 'local'
+      qps=""
+      qps=$(echo "$out" | awk '/^tps[ =]/ {for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
+      [[ -z "$qps" ]] && qps=$(echo "$out" | grep -i "tps" | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
+      [[ -z "$qps" ]] && qps=$(echo "$out" | awk '/transactions|queries/ {print $(NF-1)}' | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
+      [[ -n "$qps" ]] && qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
+      if [[ -n "$qps" ]]; then
+        pass "Performance test ran (~${qps} QPS)"
+      else
+        say "Could not parse QPS from pgbench output"
+        echo "First 20 lines of output:"
+        echo "$out" | head -20
+        pass "Performance test ran"
+      fi
     fi
   fi
 else
