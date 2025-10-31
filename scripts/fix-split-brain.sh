@@ -15,10 +15,19 @@ ssh_cmd() {
   local cmd="$*"
   
   if command -v sshpass >/dev/null 2>&1; then
-    sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 azureuser@"$target_ip" "$cmd" 2>&1
+    # Use sshpass with proper options to avoid hanging
+    sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no \
+      -o ConnectTimeout=10 \
+      -o BatchMode=yes \
+      -o UserKnownHostsFile=/dev/null \
+      -o LogLevel=ERROR \
+      azureuser@"$target_ip" "$cmd" 2>&1
   elif command -v ssh >/dev/null 2>&1; then
     # Try SSH without password (if keys are set up)
-    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 azureuser@"$target_ip" "$cmd" 2>&1
+    ssh -o StrictHostKeyChecking=no \
+      -o ConnectTimeout=10 \
+      -o BatchMode=yes \
+      azureuser@"$target_ip" "$cmd" 2>&1
   else
     echo "ERROR: Neither sshpass nor ssh found. Install sshpass: apt-get install -y sshpass" >&2
     return 1
