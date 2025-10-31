@@ -17,7 +17,15 @@ echo "by reinitializing one node as a replica."
 echo ""
 echo "⚠️  WARNING: This will stop and clear data on one node!"
 echo ""
-read -p "Continue? (yes/no): " confirm
+
+# Support non-interactive mode via environment variable
+if [[ "${AUTO_CONFIRM:-}" == "yes" ]]; then
+  confirm="yes"
+  echo "AUTO_CONFIRM=yes detected, proceeding automatically..."
+else
+  read -p "Continue? (yes/no): " confirm
+fi
+
 if [[ "$confirm" != "yes" ]]; then
   echo "Aborted."
   exit 1
