@@ -364,11 +364,12 @@ fi
 
 say "Performance (optional)"
 if ensure_pgbench; then
+  say "Calling ensure_pgbench_init..."
   if ! ensure_pgbench_init; then
     say "pgbench initialization failed, skipping performance test"
     pass "Performance test skipped (initialization failed)"
   else
-  say "Running baseline performance test (10 seconds)..."
+    say "Running baseline performance test (10 seconds)..."
   # short run to verify and show QPS (-S mode: SELECT-only queries)
   # Use timeout and capture both stdout and stderr
   set +e  # Temporarily disable exit on error for pgbench
