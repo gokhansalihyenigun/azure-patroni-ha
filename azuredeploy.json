@@ -266,6 +266,19 @@
             }
           },
           {
+            "name": "pg-azurelb-8008",
+            "properties": {
+              "priority": 105,
+              "access": "Allow",
+              "protocol": "Tcp",
+              "direction": "Inbound",
+              "sourceAddressPrefix": "AzureLoadBalancer",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "8008"
+            }
+          },
+          {
             "name": "postgres",
             "properties": {
               "priority": 110,
@@ -286,6 +299,19 @@
               "protocol": "Tcp",
               "direction": "Inbound",
               "sourceAddressPrefix": "10.50.0.0/16",
+              "sourcePortRange": "*",
+              "destinationAddressPrefix": "*",
+              "destinationPortRange": "6432"
+            }
+          },
+          {
+            "name": "pgb-azurelb-6432",
+            "properties": {
+              "priority": 116,
+              "access": "Allow",
+              "protocol": "Tcp",
+              "direction": "Inbound",
+              "sourceAddressPrefix": "AzureLoadBalancer",
               "sourcePortRange": "*",
               "destinationAddressPrefix": "*",
               "destinationPortRange": "6432"
