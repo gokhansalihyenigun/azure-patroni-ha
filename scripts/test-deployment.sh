@@ -328,7 +328,8 @@ if ensure_pgbench >/dev/null 2>&1; then
   # short run to verify and show QPS (-S mode: SELECT-only queries)
   out=$(PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 10 -c 8 -j 4 -S -M simple 2>/dev/null || true)
   # Parse QPS from pgbench output (pgbench still calls it 'tps' even in -S mode)
-  local qps=""
+  # Note: Not in a function, so don't use 'local'
+  qps=""
   qps=$(echo "$out" | awk '/^tps[ =]/ {for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
   [[ -z "$qps" ]] && qps=$(echo "$out" | grep -i "tps" | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]+\.?[0-9]*$/ && $i !~ /^[0-9]+\.[0-9]+\.[0-9]+$/){print $i; exit}}}' | head -1)
   [[ -z "$qps" ]] && qps=$(echo "$out" | awk '/transactions|queries/ {print $(NF-1)}' | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
