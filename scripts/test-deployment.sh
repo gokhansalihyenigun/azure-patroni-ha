@@ -683,12 +683,6 @@ if ensure_jq >/dev/null 2>&1 && ensure_pgbench >/dev/null 2>&1; then
   test_zero_data_loss || true
 fi
 
-# Zero Data Loss Test (RPO=0 validation with write transactions)
-# Note: Run after all other tests to avoid interfering with cluster state
-if ensure_jq >/dev/null 2>&1 && ensure_pgbench >/dev/null 2>&1; then
-  test_zero_data_loss || true
-fi
-
 exit 0
 
 # Azure Patroni HA PostgreSQL - Complete Test Suite
