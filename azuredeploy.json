@@ -669,7 +669,6 @@
               "storageAccountType": "Premium_LRS"
             }
           },
-          "hyperVGeneration": "V2",
           "dataDisks": [
             {
               "lun": 0,
@@ -689,6 +688,7 @@
             }
           ]
         },
+        "hyperVGeneration": "V2",
         "networkProfile": {
           "networkInterfaces": [
             {
@@ -739,9 +739,9 @@
             "managedDisk": {
               "storageAccountType": "Premium_LRS"
             }
-          },
-          "hyperVGeneration": "V2"
+          }
         },
+        "hyperVGeneration": "V2",
         "networkProfile": {
           "networkInterfaces": [
             {
