@@ -186,6 +186,65 @@ if command -v psql >/dev/null 2>&1 && [[ "$HAIRPIN_SKIP" = false ]]; then
   pass "Load balancer routing test"
 fi
 
+say "Failover (switchover) duration"
+measure_failover() {
+  # Map node name -> IP
+  name_to_ip() {
+    case "$1" in
+      pgpatroni-1) echo 10.50.1.4 ;;
+      pgpatroni-2) echo 10.50.1.5 ;;
+      *) echo "" ;;
+    esac
+  }
+
+  local cluster_json leader candidate leader_ip candidate_ip start end dur
+  cluster_json=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" 2>/dev/null || echo "")
+  leader=$(echo "$cluster_json" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || true)
+  candidate=$(echo "$cluster_json" | jq -r '.members[] | select(.role!="leader") | .name' 2>/dev/null || true)
+  if [[ -z "$leader" || -z "$candidate" ]]; then
+    fail "Failover: cannot determine leader/candidate"
+    return 1
+  fi
+  leader_ip=$(name_to_ip "$leader")
+  candidate_ip=$(name_to_ip "$candidate")
+  if [[ -z "$leader_ip" || -z "$candidate_ip" ]]; then
+    fail "Failover: unknown IP mapping for $leader/$candidate"
+    return 1
+  fi
+
+  start=$(date +%s)
+  # Request switchover
+  http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://${leader_ip}:$PATRONI_API_PORT/switchover" \
+    -H 'Content-Type: application/json' \
+    -d "{\"leader\":\"${leader}\",\"candidate\":\"${candidate}\"}")
+  if [[ "$http_code" != "200" && "$http_code" != "202" ]]; then
+    fail "Failover: switchover request failed (HTTP $http_code)"
+    return 1
+  fi
+
+  # Wait for new leader and SQL ready
+  if retry 40 1 bash -lc "curl -fsS http://${candidate_ip}:$PATRONI_API_PORT/role | grep -q '^leader$'"; then
+    :
+  else
+    fail "Failover: candidate did not become leader in time"
+    return 1
+  fi
+  if command -v psql >/dev/null 2>&1; then
+    if ! retry 30 1 psql "host=$DB_ILB_IP port=$DB_PORT dbname=postgres user=$POSTGRES_USER password=$POSTGRES_PASS connect_timeout=2" -Atqc "SELECT 1;" >/dev/null 2>&1; then
+      fail "Failover: SQL not ready via ILB"
+      return 1
+    fi
+  fi
+  end=$(date +%s)
+  dur=$((end-start))
+  echo "   Failover completed in ${dur}s (leader ${leader} -> ${candidate})"
+  pass "Failover measurement"
+}
+
+if ensure_jq >/dev/null 2>&1; then
+  measure_failover || true
+fi
+
 say "Performance (optional)"
 if ensure_pgbench >/dev/null 2>&1; then
   if pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 5 -c 4 -M simple >/dev/null 2>&1; then
