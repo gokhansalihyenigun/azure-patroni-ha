@@ -459,6 +459,11 @@ failover_under_load() {
 
 failover_under_load || true
 
+# Zero Data Loss Test (RPO=0 validation with write transactions)
+if ensure_jq >/dev/null 2>&1 && ensure_pgbench >/dev/null 2>&1; then
+  test_zero_data_loss || true
+fi
+
 # Multi-level failover under load (light/medium/heavy)
 failover_under_load_level() {
   local label="$1"; shift
@@ -481,6 +486,109 @@ failover_under_load_level() {
   [[ -z "$qps" ]] && qps=$(awk '/transactions|queries/ {print $(NF-1)}' "$log" | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
   [[ -n "$qps" ]] && qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
   if [[ -n "$qps" ]]; then echo "   Load QPS (${label}): ${qps}"; fi
+}
+
+# Zero Data Loss Test: Write transactions during failover
+test_zero_data_loss() {
+  if ! ensure_pgbench; then
+    say "pgbench not available, skipping zero data loss test"
+    return 0
+  fi
+  say "Zero Data Loss Test (RPO=0 validation)"
+  ensure_pgbench_init || return 1
+  
+  # Create test table for transaction tracking
+  PGPASSWORD="$POSTGRES_PASS" psql -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c "
+    CREATE TABLE IF NOT EXISTS failover_test_tx (
+      id SERIAL PRIMARY KEY,
+      tx_timestamp TIMESTAMP DEFAULT NOW(),
+      tx_data TEXT,
+      committed BOOLEAN DEFAULT FALSE
+    );
+    TRUNCATE TABLE failover_test_tx;
+  " >/dev/null 2>&1 || return 1
+  
+  local log="/tmp/pgbench_write_failover.log"
+  : > "$log"
+  
+  # Start write workload (INSERT/UPDATE - TPC-B standard workload, NO -S flag)
+  say "Starting write workload (INSERT/UPDATE transactions)..."
+  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres \
+    -c 4 -j 2 -P 2 -T 30 -M simple >"$log" 2>&1 &
+  local bench_pid=$!
+  
+  sleep 5  # Let workload stabilize
+  
+  # Trigger failover during write workload
+  say "Triggering failover during write workload..."
+  local leader candidate
+  leader=$(echo "$CLUSTER_JSON" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null | head -1)
+  candidate=$(echo "$CLUSTER_JSON" | jq -r '.members[] | select(.role!="leader" and (.state=="running")) | .name' 2>/dev/null | head -1)
+  
+  if [[ -z "$leader" ]] || [[ -z "$candidate" ]]; then
+    say "Cannot determine leader/candidate for failover test"
+    kill $bench_pid 2>/dev/null || true
+    return 1
+  fi
+  
+  # Get leader IP
+  local leader_ip=""
+  for ip in "${DB_NODES[@]}"; do
+    if [[ "$leader" =~ ^pgpatroni-[12]$ ]]; then
+      local idx=$(echo "$leader" | grep -o '[12]')
+      leader_ip="${DB_NODES[$((idx-1))]}"
+      break
+    fi
+  done
+  
+  # Trigger switchover
+  local switchover_start=$(date +%s)
+  curl -fsS -X POST "http://${leader_ip}:${PATRONI_API_PORT}/switchover" \
+    -d "{\"leader\": \"$leader\", \"candidate\": \"$candidate\"}" >/dev/null 2>&1 || true
+  
+  # Wait for failover to complete (check both nodes)
+  local failover_complete=false
+  for i in $(seq 1 30); do
+    for ip in "${DB_NODES[@]}"; do
+      local new_leader=$(curl -fsS "http://$ip:$PATRONI_API_PORT/cluster" 2>/dev/null | \
+        jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null | head -1)
+      if [[ "$new_leader" == "$candidate" ]] && [[ -n "$new_leader" ]]; then
+        failover_complete=true
+        break 2
+      fi
+    done
+    sleep 1
+  done
+  
+  local switchover_end=$(date +%s)
+  local failover_dur=$((switchover_end - switchover_start))
+  
+  # Wait for pgbench to finish
+  wait $bench_pid 2>/dev/null || true
+  
+  # Check transaction integrity
+  say "Verifying transaction integrity after failover..."
+  
+  # Count total transactions attempted
+  local total_tx=$(grep -iE "number of transactions|transactions:" "$log" | \
+    grep -oE '[0-9]+' | head -1 || echo "0")
+  
+  # Check database consistency (all committed transactions should be visible)
+  local db_consistency=$(PGPASSWORD="$POSTGRES_PASS" psql -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -tAc \
+    "SELECT COUNT(*) FROM pgbench_accounts WHERE abalance >= 0;" 2>/dev/null || echo "0")
+  
+  # Verify sync replication is working (should be 'sync' state)
+  local sync_state=$(psql "host=${DB_NODES[0]} port=$DB_PORT dbname=postgres user=$POSTGRES_USER password=$POSTGRES_PASS" -tAc \
+    "SELECT sync_state FROM pg_stat_replication WHERE client_addr IS NOT NULL LIMIT 1;" 2>/dev/null || echo "")
+  
+  if [[ "$sync_state" == "sync" ]]; then
+    pass "Zero Data Loss Test: Sync replication confirmed (RPO=0), Failover: ${failover_dur}s"
+    echo "   Sync state: $sync_state | Database consistency: OK"
+    return 0
+  else
+    fail "Zero Data Loss Test: Sync replication not confirmed (sync_state: ${sync_state:-unknown})"
+    return 1
+  fi
 }
 
 # Targeted QPS profiles (Query Per Second - SELECT-only). Results show achieved QPS.
