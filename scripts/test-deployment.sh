@@ -330,7 +330,7 @@ failover_under_load() {
   : > "$log"
   PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c 8 -j 4 -P 2 -T 60 -N -M simple >"$log" 2>&1 &
   local bench_pid=$!
-  sleep 5
+  sleep 10
   # reuse measure_failover but do not exit on failure
   if measure_failover; then
     pass "Failover under load measured"
@@ -358,7 +358,7 @@ failover_under_load_level() {
   : > "$log"
   PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c "$c" -j "$j" -P 2 -T "$t" -N -M simple >"$log" 2>&1 &
   local bench_pid=$!
-  sleep 5
+  sleep 10
   measure_failover && pass "Failover under load (${label}) measured" || fail "Failover under load (${label}) failed to measure"
   wait $bench_pid 2>/dev/null || true
   local tps=$(awk -F'=' '/^tps/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); split($2,a," "); v=a[1]} END{if(v!="") print v}' "$log")
