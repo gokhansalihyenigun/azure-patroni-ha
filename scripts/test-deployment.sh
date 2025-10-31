@@ -529,14 +529,19 @@ profile_failover_qps() {
       local temp_qps=$(grep -iE "tps.*[0-9]+" "$log" 2>/dev/null | awk '{for(i=1;i<=NF;i++){if($i ~ /^[0-9]{3,}\.?[0-9]*$/){print $i; exit}}}' | head -1)
       [[ -n "$temp_qps" ]] && qps="$temp_qps"
     fi
-    # Strategy 3: Look for number near "transactions" or "queries" (legacy format)
+    # Strategy 3: Look for final summary line with tps (often at end of output)
+    if [[ -z "$qps" ]] || [[ -z $(echo "$qps" | grep -E '^[0-9]{3,}') ]]; then
+      local temp_qps=$(tail -20 "$log" | grep -iE "tps.*[0-9]+|[0-9]+.*tps" | grep -oE '[0-9]{4,}\.?[0-9]*' | head -1)
+      [[ -n "$temp_qps" ]] && qps="$temp_qps"
+    fi
+    # Strategy 4: Look for number near "transactions" or "queries" (legacy format)
     if [[ -z "$qps" ]] || [[ -z $(echo "$qps" | grep -E '^[0-9]{3,}') ]]; then
       local temp_qps=$(grep -iE "transactions.*[0-9]+|queries.*[0-9]+" "$log" 2>/dev/null | grep -oE '[0-9]{3,}\.?[0-9]*' | head -1)
       [[ -n "$temp_qps" ]] && qps="$temp_qps"
     fi
-    # Strategy 4: Try to extract largest number from final summary lines (QPS should be > 1000)
-    if [[ -z "$qps" ]] || [[ -z $(echo "$qps" | grep -E '^[0-9]{3,}') ]]; then
-      local temp_qps=$(tail -10 "$log" | grep -oE '[0-9]{3,}\.[0-9]+' | head -1)
+    # Strategy 5: Extract largest reasonable number from entire log (QPS should be 4+ digits for high loads)
+    if [[ -z "$qps" ]] || [[ -z $(echo "$qps" | grep -E '^[0-9]{4,}') ]]; then
+      local temp_qps=$(grep -oE '[0-9]{4,}\.[0-9]+' "$log" 2>/dev/null | head -1)
       [[ -n "$temp_qps" ]] && qps="$temp_qps"
     fi
     # Format as integer if decimal, but only if we found a reasonable QPS value (> 100)
