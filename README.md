@@ -59,9 +59,7 @@ After deployment, SSH into any database VM and run the comprehensive test suite:
 
 ```bash
 # Download and run the test script
-curl -o test.sh https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha/main/scripts/test-deployment.sh
-chmod +x test.sh
-sudo ./test.sh
+curl -fsSL https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha/main/scripts/test-deployment.sh | sudo bash
 ```
 
 The test script validates:
@@ -73,6 +71,31 @@ The test script validates:
 - ✅ etcd cluster health
 - ✅ High availability configuration
 - ✅ Performance benchmarks
+
+## Troubleshooting
+
+If the test script shows "No replicas found", run the diagnostic script:
+
+```bash
+# Comprehensive cluster diagnostics
+curl -fsSL https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha/main/scripts/diagnose-cluster.sh | bash
+
+# Replica join diagnostics and fix suggestions
+curl -fsSL https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha/main/scripts/fix-replica-join.sh | bash
+```
+
+Common issues and fixes:
+
+**Issue: No replicas found**
+- Check if second VM (pgpatroni-2) is running: `ssh azureuser@10.50.1.5 'sudo systemctl status patroni'`
+- Check Patroni logs on replica: `ssh azureuser@10.50.1.5 'sudo journalctl -u patroni -n 50'`
+- Verify etcd cluster: `curl http://10.50.1.4:2379/health`
+- If replica is stuck, restart Patroni on replica VM: `sudo systemctl restart patroni`
+
+**Issue: PgBouncer connection failed**
+- Check PgBouncer service: `ssh azureuser@10.50.1.7 'sudo systemctl status pgbouncer'`
+- Verify backend connectivity: `ssh azureuser@10.50.1.7 'PGPASSWORD=ChangeMe123Pass psql -h 10.50.1.10 -p 5432 -U postgres -c "SELECT 1;"'`
+- Check PgBouncer config: `ssh azureuser@10.50.1.7 'sudo cat /etc/pgbouncer/pgbouncer.ini'`
 
 ## Manual Checks
 
