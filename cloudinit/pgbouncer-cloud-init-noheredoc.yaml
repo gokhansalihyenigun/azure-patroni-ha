@@ -96,7 +96,8 @@ runcmd:
     tee /etc/systemd/system/pgbouncer.service >/dev/null <<UNIT
 [Unit]
 Description=PgBouncer connection pooler
-After=network.target
+After=network-online.target
+Wants=network-online.target
 [Service]
 User=pgbouncer
 Group=pgbouncer
@@ -150,7 +151,8 @@ USERLIST
       cat > /etc/systemd/system/pgbouncer.service <<UNITFILE
 [Unit]
 Description=PgBouncer connection pooler
-After=network.target
+After=network-online.target
+Wants=network-online.target
 [Service]
 User=pgbouncer
 Group=pgbouncer
