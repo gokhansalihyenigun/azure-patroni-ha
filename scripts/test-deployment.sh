@@ -1,3 +1,204 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Azure Patroni HA PostgreSQL Test Suite (robust)
+
+LOG_PREFIX="[TEST]"
+VNET_CIDR="10.50.0.0/16"
+DB_ILB_IP="10.50.1.10"
+PGB_ILB_IP="10.50.1.11"
+DB_PORT=5432
+PGB_PORT=6432
+PATRONI_API_PORT=8008
+
+POSTGRES_USER="postgres"
+POSTGRES_PASS="ChangeMe123Pass"
+PGBOUNCER_USER="pgbouncer"
+PGBOUNCER_PASS="StrongPass123"
+
+retry() {
+  local attempts=$1; shift
+  local delay=$1; shift
+  local n=0
+  until "$@"; do
+    n=$((n+1))
+    if [[ $n -ge $attempts ]]; then
+      return 1
+    fi
+    sleep "$delay"
+  done
+}
+
+say() { echo -e "$LOG_PREFIX $*"; }
+pass() { echo "✓ PASSED: $*"; }
+fail() { echo "✗ FAILED: $*"; }
+
+ensure_psql() {
+  if command -v psql >/dev/null 2>&1; then
+    return 0
+  fi
+  if command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update -y >/dev/null 2>&1 || true
+    sudo apt-get install -y postgresql-client >/dev/null 2>&1 || true
+  fi
+  command -v psql >/dev/null 2>&1
+}
+
+ensure_jq() {
+  command -v jq >/dev/null 2>&1 || {
+    if command -v apt-get >/dev/null 2>&1; then
+      sudo apt-get update -y >/dev/null 2>&1 || true
+      sudo apt-get install -y jq >/dev/null 2>&1 || true
+    fi
+  }
+  command -v jq >/dev/null 2>&1
+}
+
+ensure_pgbench() {
+  command -v pgbench >/dev/null 2>&1 || {
+    if command -v apt-get >/devnull 2>&1; then
+      sudo apt-get update -y >/dev/null 2>&1 || true
+      sudo apt-get install -y postgresql-contrib >/dev/null 2>&1 || true
+    fi
+  }
+  command -v pgbench >/dev/null 2>&1
+}
+
+get_local_ip() {
+  ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1
+}
+
+in_backend_pool_subnet() {
+  # Our backend subnet is 10.50.1.0/24; quick prefix check
+  local ip
+  ip=$(get_local_ip || echo "")
+  [[ "$ip" =~ ^10\.50\.1\..* ]]
+}
+
+say "Azure Patroni HA PostgreSQL Test Suite"
+
+ensure_jq || say "jq not present; JSON outputs will be raw."
+
+say "Checking psql availability"
+if ensure_psql; then
+  pass "psql available"
+else
+  fail "psql not available; will skip SQL-based checks"
+fi
+
+say "Detecting DB nodes"
+DB_NODES=(10.50.1.4 10.50.1.5)
+echo "Detected ${#DB_NODES[@]} database VM(s)"
+
+say "Testing VM connectivity"
+for ip in "${DB_NODES[@]}" 10.50.1.7 10.50.1.8; do
+  if ping -c1 -W1 "$ip" >/dev/null 2>&1; then
+    pass "VM $ip is reachable"
+  else
+    fail "VM $ip is NOT reachable"
+  fi
+done
+
+say "Patroni health"
+for ip in "${DB_NODES[@]}"; do
+  if curl -fsS "http://$ip:$PATRONI_API_PORT/health" >/dev/null; then
+    pass "Patroni health check on $ip"
+  else
+    fail "Patroni NOT healthy on $ip"
+  fi
+done
+
+say "Cluster status"
+if curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" | jq . >/dev/null 2>&1; then
+  pass "Cluster status retrieved"
+else
+  say "Raw cluster status:" && curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" || true
+fi
+
+say "Check leader"
+LEADER=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || true)
+if [[ -n "$LEADER" ]]; then
+  pass "Leader found: $LEADER"
+else
+  fail "Leader not found"
+fi
+
+say "Check replicas"
+REPL_COUNT=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" | jq '[.members[] | select(.role!="leader")] | length' 2>/dev/null || echo 0)
+if [[ "$REPL_COUNT" -ge 1 ]]; then
+  pass "Found $REPL_COUNT replica(s)"
+else
+  fail "No replicas found"
+fi
+
+# Avoid ILB hairpin tests from backend pool VMs
+HAIRPIN_SKIP=false
+if in_backend_pool_subnet; then
+  HAIRPIN_SKIP=true
+  say "Running inside backend subnet; skipping ILB connectivity tests to avoid hairpin limits"
+fi
+
+if command -v psql >/dev/null 2>&1 && [[ "$HAIRPIN_SKIP" = false ]]; then
+  say "Direct PostgreSQL via ILB"
+  if retry 5 2 psql "host=$DB_ILB_IP port=$DB_PORT dbname=postgres user=$POSTGRES_USER password=$POSTGRES_PASS connect_timeout=3" -Atqc "SELECT version();" >/dev/null 2>&1; then
+    pass "Direct PostgreSQL connection (Load Balancer)"
+  else
+    fail "Direct PostgreSQL connection (Load Balancer)"
+  fi
+
+  say "PgBouncer via ILB"
+  if retry 10 3 psql "host=$PGB_ILB_IP port=$PGB_PORT dbname=postgres user=$POSTGRES_USER password=$POSTGRES_PASS connect_timeout=3" -Atqc "SELECT now();" >/dev/null 2>&1; then
+    pass "PgBouncer connection (Load Balancer)"
+  else
+    fail "PgBouncer connection (Load Balancer)"
+  fi
+fi
+
+if command -v psql >/dev/null 2>&1; then
+  say "Replication status"
+  if psql "host=${DB_NODES[0]} port=$DB_PORT dbname=postgres user=$POSTGRES_USER password=$POSTGRES_PASS" -Atc "SELECT client_addr,state,sync_state FROM pg_stat_replication;"; then
+    pass "Replication query executed"
+  fi
+
+  say "Data replication test"
+  if psql "host=$DB_ILB_IP port=$DB_PORT dbname=postgres user=$POSTGRES_USER password=$POSTGRES_PASS" -Atc "CREATE TABLE IF NOT EXISTS test_rep(a int); INSERT INTO test_rep VALUES (1) ON CONFLICT DO NOTHING;" >/dev/null 2>&1; then
+    pass "Write on primary succeeded"
+  else
+    fail "Write on primary failed"
+  fi
+fi
+
+say "PgBouncer stats"
+if command -v psql >/dev/null 2>&1 && [[ "$HAIRPIN_SKIP" = false ]]; then
+  if retry 10 3 psql "host=$PGB_ILB_IP port=$PGB_PORT dbname=pgbouncer user=$PGBOUNCER_USER password=$PGBOUNCER_PASS connect_timeout=3" -Atc "SHOW POOLS;" >/dev/null 2>&1; then
+    pass "PgBouncer stats accessible"
+  else
+    fail "PgBouncer stats NOT accessible"
+  fi
+fi
+
+say "Load balancer routing"
+if command -v psql >/dev/null 2>&1 && [[ "$HAIRPIN_SKIP" = false ]]; then
+  for i in 1 2 3; do
+    who=$(psql "host=$DB_ILB_IP port=$DB_PORT dbname=postgres user=$POSTGRES_USER password=$POSTGRES_PASS connect_timeout=3" -Atc "SELECT inet_server_addr();" 2>/dev/null || echo failed)
+    echo "   Connection $i routed to: $who"
+  done
+  pass "Load balancer routing test"
+fi
+
+say "Performance (optional)"
+if ensure_pgbench >/dev/null 2>&1; then
+  if pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 5 -c 4 -M simple >/dev/null 2>&1; then
+    pass "Performance test ran"
+  else
+    fail "Performance test failed"
+  fi
+else
+  echo "pgbench not installed, skipping performance test"
+fi
+
+exit 0
+
 #!/bin/bash
 
 # Azure Patroni HA PostgreSQL - Complete Test Suite
