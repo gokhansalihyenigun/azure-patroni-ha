@@ -266,6 +266,29 @@ else
   echo "pgbench not installed, skipping performance test"
 fi
 
+# Failover under load (optional)
+failover_under_load() {
+  command -v pgbench >/dev/null 2>&1 || return 0
+  say "Failover under load"
+  # start light write load via ILB
+  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c 8 -j 4 -P 2 -T 60 -N -M simple >/dev/null 2>&1 &
+  local bench_pid=$!
+  sleep 5
+  # reuse measure_failover but do not exit on failure
+  if measure_failover; then
+    pass "Failover under load measured"
+  else
+    fail "Failover under load failed to measure"
+  fi
+  # stop pgbench if still running
+  if ps -p $bench_pid >/dev/null 2>&1; then
+    kill $bench_pid >/dev/null 2>&1 || true
+    wait $bench_pid 2>/dev/null || true
+  fi
+}
+
+failover_under_load || true
+
 exit 0
 
 #!/bin/bash
