@@ -81,4 +81,23 @@ runcmd:
       WantedBy=multi-user.target
 UNIT
   - systemctl daemon-reload
-  - systemctl enable --now pgbouncer
+  - systemctl enable pgbouncer
+  - |
+    # PgBouncer servisini başlat ve hazır olana kadar bekle
+    systemctl start pgbouncer || true
+    sleep 2
+    # Servis başarısızsa retry
+    for i in {1..10}; do
+      if systemctl is-active --quiet pgbouncer && ss -lntp | grep -q :6432; then
+        break
+      fi
+      systemctl restart pgbouncer || true
+      sleep 3
+    done
+    # Son kontrol ve gerekirse restart
+    if ! systemctl is-active --quiet pgbouncer; then
+      systemctl restart pgbouncer
+      sleep 2
+    fi
+    # Servis durumunu logla
+    systemctl status pgbouncer --no-pager || true
