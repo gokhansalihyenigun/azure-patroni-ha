@@ -400,7 +400,6 @@ if ensure_pgbench; then
         pass "Performance test ran"
       fi
     fi
-  fi
 else
   say "pgbench not installed, skipping performance test"
 fi
