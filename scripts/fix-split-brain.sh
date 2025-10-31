@@ -8,6 +8,38 @@ NODE2_IP="10.50.1.5"
 POSTGRES_PASS="ChangeMe123Pass"
 ADMIN_PASS="${ADMIN_PASS:-Azure123!@#}"
 
+# Function to run SSH command (with sshpass if available, otherwise direct SSH)
+ssh_cmd() {
+  local target_ip="$1"
+  shift
+  local cmd="$*"
+  
+  if command -v sshpass >/dev/null 2>&1; then
+    sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 azureuser@"$target_ip" "$cmd" 2>&1
+  elif command -v ssh >/dev/null 2>&1; then
+    # Try SSH without password (if keys are set up)
+    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 azureuser@"$target_ip" "$cmd" 2>&1
+  else
+    echo "ERROR: Neither sshpass nor ssh found. Install sshpass: apt-get install -y sshpass" >&2
+    return 1
+  fi
+}
+
+# Install sshpass if not available
+if ! command -v sshpass >/dev/null 2>&1; then
+  echo "=== Installing sshpass ==="
+  if command -v apt-get >/dev/null 2>&1; then
+    apt-get update -qq >/dev/null 2>&1 || true
+    DEBIAN_FRONTEND=noninteractive apt-get install -y sshpass >/dev/null 2>&1 || {
+      echo "Warning: Could not install sshpass. Will try SSH without password."
+    }
+  elif command -v yum >/dev/null 2>&1; then
+    yum install -y sshpass >/dev/null 2>&1 || {
+      echo "Warning: Could not install sshpass. Will try SSH without password."
+    }
+  fi
+fi
+
 echo "======================================"
 echo "SPLIT-BRAIN FIX SCRIPT"
 echo "======================================"
@@ -82,18 +114,15 @@ echo ""
 
 echo "=== Step 4: Stopping Patroni on replica node ==="
 echo "SSH'ing to $REINIT_NODE to stop Patroni..."
-sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no azureuser@"$REINIT_NODE" \
-  "sudo systemctl stop patroni" 2>&1 || echo "Failed to stop Patroni (may already be stopped)"
+ssh_cmd "$REINIT_NODE" "sudo systemctl stop patroni" || echo "Failed to stop Patroni (may already be stopped)"
 echo "✓ Patroni stopped on $REINIT_NODE"
 
 echo ""
 echo "=== Step 5: Clearing data on replica node ==="
 echo "Clearing /pgdata and /pgwal on $REINIT_NODE..."
-sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no azureuser@"$REINIT_NODE" \
-  "sudo rm -rf /pgdata/* /pgwal/*" 2>&1 || echo "Note: Some files may be locked (will retry)"
+ssh_cmd "$REINIT_NODE" "sudo rm -rf /pgdata/* /pgwal/*" || echo "Note: Some files may be locked (will retry)"
 sleep 2
-sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no azureuser@"$REINIT_NODE" \
-  "sudo rm -rf /pgdata/* /pgwal/* 2>/dev/null || true" 2>&1
+ssh_cmd "$REINIT_NODE" "sudo rm -rf /pgdata/* /pgwal/* 2>/dev/null || true"
 echo "✓ Data cleared"
 
 echo ""
@@ -102,23 +131,20 @@ echo "Checking etcd on leader ($KEEP_LEADER)..."
 leader_etcd_health=$(curl -fsS "http://$KEEP_LEADER:2379/health" 2>/dev/null || echo "{}")
 if [[ "$leader_etcd_health" == "{}" ]]; then
   echo "✗ etcd not healthy on leader! Fixing..."
-  sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no azureuser@"$KEEP_LEADER" \
-    "sudo systemctl restart etcd; sleep 3; curl -fsS http://localhost:2379/health || echo 'etcd still not healthy'" 2>&1
+  ssh_cmd "$KEEP_LEADER" "sudo systemctl restart etcd; sleep 3; curl -fsS http://localhost:2379/health || echo 'etcd still not healthy'"
 fi
 
 echo "Checking etcd on replica node ($REINIT_NODE)..."
 replica_etcd_health=$(curl -fsS "http://$REINIT_NODE:2379/health" 2>/dev/null || echo "{}")
 if [[ "$replica_etcd_health" == "{}" ]]; then
   echo "✗ etcd not healthy on replica! Fixing..."
-  sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no azureuser@"$REINIT_NODE" \
-    "sudo systemctl restart etcd; sleep 3; curl -fsS http://localhost:2379/health || echo 'etcd still not healthy'" 2>&1
+  ssh_cmd "$REINIT_NODE" "sudo systemctl restart etcd; sleep 3; curl -fsS http://localhost:2379/health || echo 'etcd still not healthy'"
 fi
 
 echo ""
 echo "=== Step 7: Checking etcd cluster configuration ==="
 echo "Verifying etcd cluster token and initial cluster settings..."
-sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no azureuser@"$REINIT_NODE" \
-  "echo 'ETCD config:'; grep -E 'ETCD_INITIAL_CLUSTER_TOKEN|ETCD_INITIAL_CLUSTER|ETCD_INITIAL_CLUSTER_STATE' /etc/default/etcd 2>/dev/null || echo 'Config file not found'" 2>&1
+ssh_cmd "$REINIT_NODE" "echo 'ETCD config:'; grep -E 'ETCD_INITIAL_CLUSTER_TOKEN|ETCD_INITIAL_CLUSTER|ETCD_INITIAL_CLUSTER_STATE' /etc/default/etcd 2>/dev/null || echo 'Config file not found'"
 
 echo ""
 echo "=== Step 8: Reinitializing replica node ==="
@@ -135,8 +161,7 @@ fi
 
 echo ""
 echo "=== Step 9: Starting Patroni on replica node ==="
-sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no azureuser@"$REINIT_NODE" \
-  "sudo systemctl start patroni" 2>&1 || echo "Failed to start Patroni"
+ssh_cmd "$REINIT_NODE" "sudo systemctl start patroni" || echo "Failed to start Patroni"
 echo "✓ Patroni started on $REINIT_NODE"
 
 echo ""
