@@ -365,10 +365,7 @@ fi
 say "Performance (optional)"
 if ensure_pgbench; then
   say "Calling ensure_pgbench_init..."
-  if ! ensure_pgbench_init; then
-    say "pgbench initialization failed, skipping performance test"
-    pass "Performance test skipped (initialization failed)"
-  else
+  if ensure_pgbench_init; then
     say "Running baseline performance test (10 seconds)..."
     # short run to verify and show QPS (-S mode: SELECT-only queries)
     # Use timeout and capture both stdout and stderr
@@ -378,12 +375,7 @@ if ensure_pgbench; then
     pgbench_exit=$?
     set -e  # Re-enable exit on error
     say "pgbench command finished with exit code: $pgbench_exit"
-    if [[ $pgbench_exit -ne 0 ]] || [[ -z "$out" ]]; then
-      say "pgbench command failed (exit code: $pgbench_exit) or produced no output"
-      echo "Last 20 lines of output:"
-      echo "$out" | tail -20
-      pass "Performance test ran (but no metrics available)"
-    else
+    if [[ $pgbench_exit -eq 0 ]] && [[ -n "$out" ]]; then
       # Parse QPS from pgbench output (pgbench still calls it 'tps' even in -S mode)
       # Note: Not in a function, so don't use 'local'
       qps=""
@@ -399,7 +391,15 @@ if ensure_pgbench; then
         echo "$out" | head -20
         pass "Performance test ran"
       fi
+    else
+      say "pgbench command failed (exit code: $pgbench_exit) or produced no output"
+      echo "Last 20 lines of output:"
+      echo "$out" | tail -20
+      pass "Performance test ran (but no metrics available)"
     fi
+  else
+    say "pgbench initialization failed, skipping performance test"
+    pass "Performance test skipped (initialization failed)"
   fi
 else
   say "pgbench not installed, skipping performance test"
