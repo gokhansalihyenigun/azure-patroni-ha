@@ -160,7 +160,27 @@ runcmd:
   - sleep 10
   - pip3 install patroni[etcd] requests
   - mkdir -p /etc/patroni
+  - |
+    # Patroni initdb yapmadan önce, WAL directory için hazırlık
+    # Patroni initdb'den sonra /pgdata/pg_wal oluşacak, bunu /pgwal'e symlink edeceğiz
+    mkdir -p /pgdata /pgwal
+    chmod 700 /pgdata /pgwal
+    chown -R postgres:postgres /pgdata /pgwal
   - /tmp/setup-patroni.sh
+  - |
+    # Patroni initdb sonrası, pg_wal'i /pgwal'e taşı ve symlink yap
+    if [ -d "/pgdata/pg_wal" ] && [ -d "/pgwal" ]; then
+      # Eğer pg_wal henüz boşsa veya sadece initdb yapıldıysa
+      if [ "$(ls -A /pgdata/pg_wal 2>/dev/null)" ]; then
+        # WAL dosyalarını /pgwal'e taşı
+        mv /pgdata/pg_wal/* /pgwal/ 2>/dev/null || true
+      fi
+      # Eski pg_wal'i sil ve symlink oluştur
+      rm -rf /pgdata/pg_wal
+      ln -s /pgwal /pgdata/pg_wal
+      chown -h postgres:postgres /pgdata/pg_wal
+      chmod 700 /pgwal
+    fi
   - systemctl daemon-reload
   - systemctl enable patroni
   - systemctl start patroni
