@@ -207,10 +207,18 @@ measure_failover() {
   }
 
   local cluster_json leader candidate leader_ip candidate_ip start end dur
-  cluster_json=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" 2>/dev/null || echo "")
-  leader=$(echo "$cluster_json" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || true)
-  # Prefer sync_standby if available, else any non-leader running member
-  candidate=$(echo "$cluster_json" | jq -r '.members[] | select(.role!="leader" and ((.role=="sync_standby") or (.state=="running"))) | .name' 2>/dev/null | head -1 || true)
+  # Discover leader and best candidate with retries across both nodes (tolerate 503 under load)
+  leader=""; candidate=""
+  for attempt in $(seq 1 30); do
+    for ip in "${DB_NODES[@]}"; do
+      out=$(curl -fsS "http://$ip:$PATRONI_API_PORT/cluster" 2>/dev/null || true)
+      [[ -z "$out" ]] && continue
+      l=$(echo "$out" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || echo "")
+      c=$(echo "$out" | jq -r '.members[] | select(.role!="leader" and ((.role=="sync_standby") or (.state=="running"))) | .name' 2>/dev/null | head -1 || echo "")
+      if [[ -n "$l" && -n "$c" ]]; then leader="$l"; candidate="$c"; break 2; fi
+    done
+    sleep 1
+  done
   if [[ -z "$leader" || -z "$candidate" ]]; then
     fail "Failover: cannot determine leader/candidate"
     return 1
