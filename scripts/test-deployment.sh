@@ -540,10 +540,15 @@ profile_failover_qps() {
       [[ -n "$temp_qps" ]] && qps="$temp_qps"
     fi
     # Format as integer if decimal, but only if we found a reasonable QPS value (> 100)
-    if [[ -n "$qps" ]] && [[ "$qps" =~ ^[0-9]+\.?[0-9]*$ ]] && (( $(echo "$qps" | cut -d. -f1) > 100 )); then
-      qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
+    if [[ -n "$qps" ]] && [[ "$qps" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+      local qps_int=$(echo "$qps" | cut -d. -f1)
+      if [[ "$qps_int" =~ ^[0-9]+$ ]] && [[ $qps_int -gt 100 ]]; then
+        qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
+      else
+        qps=""  # Too small, treat as missing
+      fi
     else
-      qps=""  # Invalid or too small, treat as missing
+      qps=""  # Invalid format, treat as missing
     fi
     echo "   Target: ${label} QPS | Achieved QPS: ${qps:-n/a} | Failover: ${dur}s (${desc})"
   else
