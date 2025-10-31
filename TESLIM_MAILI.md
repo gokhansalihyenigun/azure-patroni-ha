@@ -412,6 +412,7 @@ flowchart LR
 - **VM Boyutu**: Standard_D16s_v6 (**v6 serisi maksimum performans için**)
   - **CPU**: 16 vCPU
   - **RAM**: 64 GB
+- **OS Disk**: Premium SSD v2 (PremiumV2_LRS - **en yüksek performans**)
 - **Pool Mode**: Transaction
 - **Default Pool Size**: 200 bağlantı
 - **Max Client Connections**: 2000 bağlantı
