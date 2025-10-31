@@ -666,7 +666,7 @@
           "osDisk": {
             "createOption": "FromImage",
             "managedDisk": {
-              "storageAccountType": "[parameters('diskSku')]"
+              "storageAccountType": "Premium_LRS"
             }
           },
           "dataDisks": [
@@ -736,7 +736,7 @@
           "osDisk": {
             "createOption": "FromImage",
             "managedDisk": {
-              "storageAccountType": "[parameters('diskSku')]"
+              "storageAccountType": "Premium_LRS"
             }
           }
         },
