@@ -334,7 +334,7 @@ if ensure_pgbench >/dev/null 2>&1; then
   [[ -z "$qps" ]] && qps=$(echo "$out" | awk '/transactions|queries/ {print $(NF-1)}' | grep -E '^[0-9]+\.?[0-9]*$' | head -1)
   [[ -n "$qps" ]] && qps=$(printf "%.0f" "$qps" 2>/dev/null || echo "$qps")
   if [[ -n "$qps" ]]; then
-    pass "Performance test ran (~${tps} TPS)"
+    pass "Performance test ran (~${qps} QPS)"
   else
     pass "Performance test ran"
   fi
