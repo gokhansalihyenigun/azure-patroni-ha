@@ -256,7 +256,9 @@ measure_failover() {
   fi
   end=$(date +%s)
   dur=$((end-start))
-  echo "   Failover completed in ${dur}s (leader ${leader} -> ${candidate})"
+  FAILOVER_DUR=${dur}
+  FAILOVER_DESC="leader ${leader} -> ${candidate}"
+  echo "   Failover completed in ${dur}s (${FAILOVER_DESC})"
   pass "Failover measurement"
 }
 
@@ -323,9 +325,36 @@ failover_under_load_level() {
   if [[ -n "$tps" ]]; then echo "   Load TPS (${label}): ${tps}"; fi
 }
 
-failover_under_load_level light 8 4 || true
-failover_under_load_level medium 32 8 || true
-failover_under_load_level heavy 64 16 || true
+# Targeted TPS profiles (approximate via higher concurrency). Results show achieved TPS.
+profile_failover_tps() {
+  local label="$1"; shift
+  local clients="$1"; shift
+  local jobs="$1"; shift
+  local t=60
+  say "Failover under load (target ${label})"
+  ensure_pgbench_init || true
+  local log="/tmp/pgbench_load_${label}.log"
+  : > "$log"
+  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c "$clients" -j "$jobs" -P 2 -T "$t" -N -M simple >"$log" 2>&1 &
+  local bench_pid=$!
+  sleep 5
+  if measure_failover; then
+    local dur="$FAILOVER_DUR" desc="$FAILOVER_DESC"
+    pass "Failover under load (${label}) measured"
+    wait $bench_pid 2>/dev/null || true
+    local tps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1)
+    echo "   Target: ${label} | Achieved TPS: ${tps:-n/a} | Failover: ${dur}s (${desc})"
+  else
+    fail "Failover under load (${label}) failed to measure"
+    kill $bench_pid >/dev/null 2>&1 || true
+    wait $bench_pid 2>/dev/null || true
+  fi
+}
+
+# Approximate client/job settings for 2k/4k/8k TPS targets; adjust per VM size.
+profile_failover_tps 2000 64 16 || true
+profile_failover_tps 4000 128 32 || true
+profile_failover_tps 8000 256 64 || true
 
 exit 0
 
