@@ -202,7 +202,8 @@
       "properties": {
         "publicIPAllocationMethod": "Static",
         "publicIPAddressVersion": "IPv4"
-      }
+      },
+      "zones": []
     },
     {
       "type": "Microsoft.Network/natGateways",
