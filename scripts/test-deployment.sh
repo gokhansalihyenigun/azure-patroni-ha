@@ -323,8 +323,9 @@ if ensure_jq >/dev/null 2>&1; then
 fi
 
 say "Performance (optional)"
-if ensure_pgbench >/dev/null 2>&1; then
+if ensure_pgbench; then
   ensure_pgbench_init || true
+  say "Running baseline performance test..."
   # short run to verify and show QPS (-S mode: SELECT-only queries)
   out=$(PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 10 -c 8 -j 4 -S -M simple 2>/dev/null || true)
   # Parse QPS from pgbench output (pgbench still calls it 'tps' even in -S mode)
@@ -345,7 +346,7 @@ fi
 
 # Failover under load (optional)
 failover_under_load() {
-  if ! ensure_pgbench >/dev/null 2>&1; then
+  if ! ensure_pgbench; then
     say "pgbench not available, skipping failover under load test"
     return 0
   fi
@@ -456,7 +457,7 @@ profile_failover_qps() {
 }
 
 # Approximate client/job settings for 2k/3k/4k/8k QPS targets (SELECT-only queries); adjust per VM size.
-if ensure_pgbench >/dev/null 2>&1; then
+if ensure_pgbench; then
   profile_failover_qps 2000 64 16 || true
   profile_failover_qps 3000 96 24 || true
   profile_failover_qps 4000 128 32 || true
