@@ -24,5 +24,5 @@ template['variables']['pgbCloudInitScript'] = pgbcloudinit_b64
 with open('azuredeploy.json', 'w', encoding='utf-8') as f:
     json.dump(template, f, indent=2, ensure_ascii=False)
 
-print("✓ Updated cloudInitScript and pgbCloudInitScript in azuredeploy.json")
+print("Updated cloudInitScript and pgbCloudInitScript in azuredeploy.json")
 
