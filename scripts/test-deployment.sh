@@ -433,8 +433,9 @@ profile_failover_tps() {
   fi
 }
 
-# Approximate client/job settings for 2k/4k/8k TPS targets; adjust per VM size.
+# Approximate client/job settings for 2k/3k/4k/8k TPS targets; adjust per VM size.
 profile_failover_tps 2000 64 16 || true
+profile_failover_tps 3000 96 24 || true
 profile_failover_tps 4000 128 32 || true
 profile_failover_tps 8000 256 64 || true
 
