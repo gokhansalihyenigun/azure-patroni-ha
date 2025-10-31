@@ -118,14 +118,20 @@ for ip in "${DB_NODES[@]}"; do
 done
 
 say "Cluster status"
-if curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" | jq . >/dev/null 2>&1; then
+CLUSTER_JSON=""
+for ip in "${DB_NODES[@]}"; do
+  out=$(curl -fsS "http://$ip:$PATRONI_API_PORT/cluster" 2>/dev/null || true)
+  if [[ -n "$out" ]]; then CLUSTER_JSON="$out"; break; fi
+done
+if [[ -n "$CLUSTER_JSON" ]]; then
+  echo "$CLUSTER_JSON" | jq . >/dev/null 2>&1 || echo "$CLUSTER_JSON"
   pass "Cluster status retrieved"
 else
-  say "Raw cluster status:" && curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" || true
+  fail "Could not retrieve cluster status"
 fi
 
 say "Check leader"
-LEADER=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || true)
+LEADER=$(echo "$CLUSTER_JSON" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || true)
 if [[ -n "$LEADER" ]]; then
   pass "Leader found: $LEADER"
 else
@@ -133,7 +139,7 @@ else
 fi
 
 say "Check replicas"
-REPL_COUNT=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" | jq '[.members[] | select(.role!="leader")] | length' 2>/dev/null || echo 0)
+REPL_COUNT=$(echo "$CLUSTER_JSON" | jq '[.members[] | select(.role!="leader")] | length' 2>/dev/null || echo 0)
 if [[ "$REPL_COUNT" -ge 1 ]]; then
   pass "Found $REPL_COUNT replica(s)"
 else
@@ -423,13 +429,18 @@ zone_outage_under_load_3k() {
   ensure_pgbench_init || true
 
   # Ensure leader is pgpatroni-1 (Zone 1)
-  cur_leader=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || echo "")
+  cur_leader=""
+  for ip in "${DB_NODES[@]}"; do
+    cur_leader=$(curl -fsS "http://${ip}:$PATRONI_API_PORT/cluster" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || echo "")
+    [[ -n "$cur_leader" ]] && break
+  done
   if [[ "$cur_leader" != "pgpatroni-1" ]]; then
     say "Switching leader to pgpatroni-1 before outage"
-    DB_NODES=(10.50.1.4 10.50.1.5) # ensure order
-    leader="pgpatroni-2"; candidate="pgpatroni-1"; leader_ip=10.50.1.5
+    # Try switchover via whichever node responds
+    leader_ip=10.50.1.5
     curl -s -o /dev/null -w "%{http_code}" -X POST "http://${leader_ip}:$PATRONI_API_PORT/switchover" \
-      -H 'Content-Type: application/json' -d '{"leader":"pgpatroni-2","candidate":"pgpatroni-1"}' >/dev/null || true
+      -H 'Content-Type: application/json' -d '{"leader":"pgpatroni-2","candidate":"pgpatroni-1"}' >/dev/null 2>&1 || true
+    # Best-effort wait; if node .4 is unreachable, continue
     retry 60 1 bash -lc "curl -fsS http://10.50.1.4:$PATRONI_API_PORT/role | grep -q '^leader$'" || true
   fi
 
