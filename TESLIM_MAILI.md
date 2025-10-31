@@ -391,9 +391,10 @@ flowchart LR
   - **RAM**: 128 GB
   - **Performans**: En yeni nesil Intel/AMD işlemciler, geliştirilmiş ağ performansı, yüksek paralel işlem kapasitesi
 - **Diskler**:
+  - **OS Disk**: Premium SSD (Premium_LRS - OS diskler için maksimum seçenek)
   - **Data Disk**: 1024 GB Premium SSD v2 (PremiumV2_LRS - **en yüksek IOPS ve throughput**)
   - **WAL Disk**: 512 GB Premium SSD v2 (PremiumV2_LRS)
-  - **Disk Performansı**: Premium SSD v2, Premium SSD'ye göre çok daha yüksek IOPS (80,000+ IOPS) ve throughput (1,200 MB/s+)
+  - **Disk Performansı**: Premium SSD v2 data diskler, Premium SSD'ye göre çok daha yüksek IOPS (80,000+ IOPS) ve throughput (1,200 MB/s+)
 - **PostgreSQL Versiyonu**: 16.10
 - **Replikasyon**: Senkron replikasyon (synchronous standby)
 
@@ -412,7 +413,7 @@ flowchart LR
 - **VM Boyutu**: Standard_D16s_v6 (**v6 serisi maksimum performans için**)
   - **CPU**: 16 vCPU
   - **RAM**: 64 GB
-- **OS Disk**: Premium SSD v2 (PremiumV2_LRS - **en yüksek performans**)
+- **OS Disk**: Premium SSD (Premium_LRS - OS diskler için maksimum seçenek)
 - **Pool Mode**: Transaction
 - **Default Pool Size**: 200 bağlantı
 - **Max Client Connections**: 2000 bağlantı
