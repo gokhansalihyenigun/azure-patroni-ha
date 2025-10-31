@@ -147,7 +147,7 @@ runcmd:
     User=pgbouncer
     Group=pgbouncer
     Type=simple
-    ExecStart=$PGB_BIN -u pgbouncer -q /etc/pgbouncer/pgbouncer.ini
+    ExecStart=$PGB_BIN -q /etc/pgbouncer/pgbouncer.ini
     PIDFile=/run/pgbouncer/pgbouncer.pid
     RuntimeDirectory=pgbouncer
     RuntimeDirectoryMode=0755
