@@ -86,10 +86,23 @@ curl -fsSL https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha
 
 Common issues and fixes:
 
+**Issue: Split-brain (both nodes are leaders)**
+- This indicates etcd cluster was not properly formed
+- Run the split-brain fix script:
+  ```bash
+  ADMIN_PASS='Azure123!@#' curl -fsSL https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha/main/scripts/fix-split-brain.sh | bash
+  ```
+- The script will reinitialize one node as a replica
+
 **Issue: No replicas found**
 - Check if second VM (pgpatroni-2) is running: `ssh azureuser@10.50.1.5 'sudo systemctl status patroni'`
 - Check Patroni logs on replica: `ssh azureuser@10.50.1.5 'sudo journalctl -u patroni -n 50'`
 - Verify etcd cluster: `curl http://10.50.1.4:2379/health`
+- Check if both nodes see the same etcd cluster: 
+  ```bash
+  ETCDCTL_API=3 etcdctl --endpoints=http://10.50.1.4:2379 member list
+  ETCDCTL_API=3 etcdctl --endpoints=http://10.50.1.5:2379 member list
+  ```
 - If replica is stuck, restart Patroni on replica VM: `sudo systemctl restart patroni`
 
 **Issue: PgBouncer connection failed**
