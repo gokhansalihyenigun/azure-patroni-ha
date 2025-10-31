@@ -82,8 +82,24 @@ ensure_pgbench_init() {
   fi
   say "Initializing pgbench tables with scale 10 (this may take 1-2 minutes)..."
   set +e
-  PGPASSWORD="$POSTGRES_PASS" timeout 180 pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -i -s 10 2>&1 | head -20
-  init_exit=$?
+  # Run initialization in background and show progress
+  PGPASSWORD="$POSTGRES_PASS" timeout 180 pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -i -s 10 >/tmp/pgbench_init.log 2>&1 &
+  init_pid=$!
+  # Show progress every 10 seconds
+  for i in {1..18}; do
+    if ! kill -0 $init_pid 2>/dev/null; then
+      wait $init_pid
+      init_exit=$?
+      break
+    fi
+    sleep 10
+    say "pgbench initialization in progress... ($((i*10))s elapsed)"
+  done
+  # If still running, wait for completion
+  if kill -0 $init_pid 2>/dev/null; then
+    wait $init_pid
+    init_exit=$?
+  fi
   set -e
   if [[ $init_exit -eq 0 ]]; then
     date +%s > "$stamp"
@@ -91,6 +107,8 @@ ensure_pgbench_init() {
     return 0
   else
     say "pgbench initialization failed or timed out (exit code: $init_exit)"
+    say "Last 10 lines of initialization output:"
+    tail -10 /tmp/pgbench_init.log 2>/dev/null || true
     return 1
   fi
 }
@@ -346,10 +364,10 @@ fi
 
 say "Performance (optional)"
 if ensure_pgbench; then
-  ensure_pgbench_init || {
+  if ! ensure_pgbench_init; then
     say "pgbench initialization failed, skipping performance test"
     pass "Performance test skipped (initialization failed)"
-  } || true
+  else
   say "Running baseline performance test (10 seconds)..."
   # short run to verify and show QPS (-S mode: SELECT-only queries)
   # Use timeout and capture both stdout and stderr
