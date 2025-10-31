@@ -380,6 +380,8 @@ fi
 say "Performance (optional)"
 if ensure_pgbench; then
   say "Calling ensure_pgbench_init..."
+  # Wait a bit after failover to ensure cluster is stable
+  sleep 3
   if ensure_pgbench_init; then
     say "Running baseline performance test (10 seconds)..."
     # short run to verify and show QPS (-S mode: SELECT-only queries)
