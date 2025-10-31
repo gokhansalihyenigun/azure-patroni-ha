@@ -38,146 +38,145 @@ write_files:
       ETCDEOF
       sed -i "s/\${HOSTNAME}/${HOSTNAME}/g" /etc/default/etcd
       sed -i "s/\${IP}/${IP}/g" /etc/default/etcd
-  - path: /etc/pgbouncer/pgbouncer.ini
-    permissions: '0644'
-    content: |
-      [databases]
-      postgres = host=10.50.1.10 port=5432 dbname=postgres
-      * = host=10.50.1.10 port=5432
-      [pgbouncer]
-      listen_addr = 0.0.0.0
-      listen_port = 6432
-      pool_mode = transaction
-      default_pool_size = 200
-      max_client_conn = 2000
-      ignore_startup_parameters = extra_float_digits
-      auth_type = plain
-      auth_file = /etc/pgbouncer/userlist.txt
-      admin_users = pgbouncer,postgres
-  - path: /etc/pgbouncer/userlist.txt
-    permissions: '0640'
-    content: |
-      "pgbouncer" "StrongPass123"
-      "postgres" "ChangeMe123Pass"
 
 runcmd:
   - |
-    # Ensure PgBouncer package is installed first (may fail if no internet, but we'll retry)
+    # STEP 1: Install PgBouncer package (with retry for internet issues)
+    echo "=== Installing PgBouncer package ==="
     if ! command -v pgbouncer >/dev/null 2>&1; then
-      echo "PgBouncer not found, attempting to install..."
+      echo "PgBouncer not found, installing..."
       apt-get update -qq >/dev/null 2>&1 || true
-      DEBIAN_FRONTEND=noninteractive apt-get install -y pgbouncer >/dev/null 2>&1 || echo "Installation failed, will retry later"
+      DEBIAN_FRONTEND=noninteractive apt-get install -y pgbouncer >/dev/null 2>&1 || {
+        echo "First install attempt failed, retrying..."
+        sleep 10
+        apt-get update -qq >/dev/null 2>&1 || true
+        DEBIAN_FRONTEND=noninteractive apt-get install -y pgbouncer || {
+          echo "ERROR: Failed to install PgBouncer package"
+          exit 1
+        }
+      }
     fi
-  - adduser --system --group --home /var/lib/pgbouncer pgbouncer || true
-  - install -o pgbouncer -g pgbouncer -m 755 -d /run/pgbouncer /var/log/pgbouncer /etc/pgbouncer
+    echo "✓ PgBouncer package installed"
   - |
+    # STEP 2: Create pgbouncer user and directories (BEFORE creating config files)
+    echo "=== Creating pgbouncer user and directories ==="
+    adduser --system --group --home /var/lib/pgbouncer --no-create-home pgbouncer || true
+    
+    # Create all necessary directories with correct permissions
+    install -o pgbouncer -g pgbouncer -m 755 -d /etc/pgbouncer || true
+    install -o pgbouncer -g pgbouncer -m 755 -d /run/pgbouncer || true
+    install -o pgbouncer -g pgbouncer -m 755 -d /var/log/pgbouncer || true
+    install -o pgbouncer -g pgbouncer -m 755 -d /var/lib/pgbouncer || true
+    
+    echo "✓ Directories created"
+  - |
+    # STEP 3: Create configuration files (AFTER user and directories exist)
+    echo "=== Creating PgBouncer configuration ==="
+    
+    # Create pgbouncer.ini
+    cat > /etc/pgbouncer/pgbouncer.ini <<'INIFILE'
+    [databases]
+    postgres = host=10.50.1.10 port=5432 dbname=postgres
+    * = host=10.50.1.10 port=5432
+    [pgbouncer]
+    listen_addr = 0.0.0.0
+    listen_port = 6432
+    pool_mode = transaction
+    default_pool_size = 200
+    max_client_conn = 2000
+    ignore_startup_parameters = extra_float_digits
+    auth_type = plain
+    auth_file = /etc/pgbouncer/userlist.txt
+    admin_users = pgbouncer,postgres
+    INIFILE
+    
+    # Create userlist.txt
+    cat > /etc/pgbouncer/userlist.txt <<'USERLIST'
+    "pgbouncer" "StrongPass123"
+    "postgres" "ChangeMe123Pass"
+    USERLIST
+    
+    # Set correct ownership and permissions
+    chown pgbouncer:pgbouncer /etc/pgbouncer/pgbouncer.ini
+    chmod 644 /etc/pgbouncer/pgbouncer.ini
+    chown pgbouncer:pgbouncer /etc/pgbouncer/userlist.txt
+    chmod 640 /etc/pgbouncer/userlist.txt
+    
+    echo "✓ Configuration files created"
+  - |
+    # STEP 4: Setup etcd (only for pgpatroni-pgb-1)
     IP=$(ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
     if [ "$IP" = "10.50.1.7" ]; then
+      echo "=== Setting up etcd (pgpatroni-pgb-1) ==="
       /tmp/setup-etcd.sh
       systemctl enable etcd
       systemctl restart etcd
+      sleep 5
+      echo "✓ etcd configured and started"
     else
       systemctl stop etcd || true
       systemctl disable etcd || true
     fi
-  - chown pgbouncer:pgbouncer /etc/pgbouncer/userlist.txt
-  - chmod 640 /etc/pgbouncer/userlist.txt
-  - chown -R pgbouncer:pgbouncer /etc/pgbouncer /var/log/pgbouncer /run/pgbouncer
   - |
-    # Find PgBouncer binary location (ensure it's installed first)
-    PGB_BIN=$(which pgbouncer 2>/dev/null || find /usr -name pgbouncer -type f 2>/dev/null | head -1 || echo "/usr/sbin/pgbouncer")
-    if [ ! -x "$PGB_BIN" ]; then
-      echo "PgBouncer binary not found at $PGB_BIN, ensuring package is installed..."
-      apt-get update -qq >/dev/null 2>&1 || true
-      DEBIAN_FRONTEND=noninteractive apt-get install -y pgbouncer >/dev/null 2>&1 || true
-      PGB_BIN=$(which pgbouncer 2>/dev/null || find /usr -name pgbouncer -type f 2>/dev/null | head -1 || echo "/usr/sbin/pgbouncer")
+    # STEP 5: Create systemd service file
+    echo "=== Creating systemd service ==="
+    
+    # Find PgBouncer binary (must be installed by now)
+    PGB_BIN=$(which pgbouncer 2>/dev/null || find /usr -name pgbouncer -type f -executable 2>/dev/null | head -1)
+    if [ -z "$PGB_BIN" ] || [ ! -x "$PGB_BIN" ]; then
+      echo "ERROR: PgBouncer binary not found!"
+      which pgbouncer || find /usr -name pgbouncer || echo "Search failed"
+      exit 1
     fi
     echo "Using PgBouncer binary: $PGB_BIN"
-    tee /etc/systemd/system/pgbouncer.service >/dev/null <<UNIT
-[Unit]
-Description=PgBouncer connection pooler
-After=network-online.target
-Wants=network-online.target
-[Service]
-User=pgbouncer
-Group=pgbouncer
-Type=simple
-ExecStart=$PGB_BIN -q /etc/pgbouncer/pgbouncer.ini
-PIDFile=/run/pgbouncer/pgbouncer.pid
-RuntimeDirectory=pgbouncer
-RuntimeDirectoryMode=0755
-Restart=on-failure
-RestartSec=2
-[Install]
-WantedBy=multi-user.target
-UNIT
-  - systemctl daemon-reload
-  - systemctl enable pgbouncer
-  - |
-    # Verify files were created correctly
-    echo "Verifying PgBouncer setup..."
+    
+    # Verify config file exists and is readable
     if [ ! -f /etc/pgbouncer/pgbouncer.ini ]; then
-      echo "ERROR: pgbouncer.ini not found! Creating manually..."
-      cat > /etc/pgbouncer/pgbouncer.ini <<'INIFILE'
-[databases]
-postgres = host=10.50.1.10 port=5432 dbname=postgres
-* = host=10.50.1.10 port=5432
-[pgbouncer]
-listen_addr = 0.0.0.0
-listen_port = 6432
-pool_mode = transaction
-default_pool_size = 200
-max_client_conn = 2000
-ignore_startup_parameters = extra_float_digits
-auth_type = plain
-auth_file = /etc/pgbouncer/userlist.txt
-admin_users = pgbouncer,postgres
-INIFILE
-      chown pgbouncer:pgbouncer /etc/pgbouncer/pgbouncer.ini
+      echo "ERROR: /etc/pgbouncer/pgbouncer.ini not found!"
+      exit 1
     fi
-    if [ ! -f /etc/pgbouncer/userlist.txt ]; then
-      echo "ERROR: userlist.txt not found! Creating manually..."
-      cat > /etc/pgbouncer/userlist.txt <<'USERLIST'
-"pgbouncer" "StrongPass123"
-"postgres" "ChangeMe123Pass"
-USERLIST
-      chown pgbouncer:pgbouncer /etc/pgbouncer/userlist.txt
-      chmod 640 /etc/pgbouncer/userlist.txt
-    fi
-    if [ ! -f /etc/systemd/system/pgbouncer.service ]; then
-      echo "ERROR: pgbouncer.service not found! Creating manually..."
-      # Find PgBouncer binary location
-      PGB_BIN=$(which pgbouncer 2>/dev/null || find /usr -name pgbouncer -type f 2>/dev/null | head -1 || echo "/usr/sbin/pgbouncer")
-      cat > /etc/systemd/system/pgbouncer.service <<UNITFILE
-[Unit]
-Description=PgBouncer connection pooler
-After=network-online.target
-Wants=network-online.target
-[Service]
-User=pgbouncer
-Group=pgbouncer
-Type=simple
-ExecStart=$PGB_BIN -q /etc/pgbouncer/pgbouncer.ini
-PIDFile=/run/pgbouncer/pgbouncer.pid
-RuntimeDirectory=pgbouncer
-RuntimeDirectoryMode=0755
-Restart=on-failure
-RestartSec=2
-[Install]
-WantedBy=multi-user.target
-UNITFILE
-      systemctl daemon-reload
-    fi
+    
+    # Create systemd service file
+    cat > /etc/systemd/system/pgbouncer.service <<UNIT
+    [Unit]
+    Description=PgBouncer connection pooler
+    After=network-online.target
+    Wants=network-online.target
+    
+    [Service]
+    User=pgbouncer
+    Group=pgbouncer
+    Type=simple
+    ExecStart=$PGB_BIN -u pgbouncer -q /etc/pgbouncer/pgbouncer.ini
+    PIDFile=/run/pgbouncer/pgbouncer.pid
+    RuntimeDirectory=pgbouncer
+    RuntimeDirectoryMode=0755
+    Restart=on-failure
+    RestartSec=5
+    StandardOutput=journal
+    StandardError=journal
+    
+    [Install]
+    WantedBy=multi-user.target
+    UNIT
+    
+    # Reload systemd and enable service
+    systemctl daemon-reload
+    systemctl enable pgbouncer
+    
+    echo "✓ Systemd service created and enabled"
   - |
-    # PostgreSQL ILB'nin hazır olmasını bekle (en fazla 10 dakika)
+    # STEP 6: Wait for PostgreSQL ILB to be ready
+    echo "=== Waiting for PostgreSQL ILB ==="
     DB_ILB="10.50.1.10"
-    echo "Waiting for PostgreSQL ILB ($DB_ILB) to be ready..."
     DB_READY=false
+    
     for i in {1..120}; do
+      # Test TCP connection
       if timeout 3 bash -c "echo > /dev/tcp/$DB_ILB/5432" 2>/dev/null; then
-        # Also test actual PostgreSQL connection
+        # Test actual PostgreSQL connection
         if PGPASSWORD='ChangeMe123Pass' timeout 3 psql -h "$DB_ILB" -p 5432 -U postgres -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
-          echo "PostgreSQL ILB is ready and accepting connections!"
+          echo "✓ PostgreSQL ILB is ready and accepting connections!"
           DB_READY=true
           break
         fi
@@ -187,61 +186,86 @@ UNITFILE
       fi
       sleep 5
     done
+    
     if [ "$DB_READY" != "true" ]; then
       echo "WARNING: PostgreSQL ILB not fully ready after 10 minutes, will continue anyway..."
     fi
   - |
-    # PgBouncer servisini başlat ve hazır olana kadar bekle
-    echo "Starting PgBouncer service..."
-    systemctl start pgbouncer || true
+    # STEP 7: Start PgBouncer service with comprehensive verification
+    echo "=== Starting PgBouncer service ==="
+    
+    # Start service
+    systemctl start pgbouncer
     sleep 5
     
-    # Servis başarısızsa retry (en fazla 20 deneme, 2 dakika)
+    # Verify service started
     PGB_READY=false
-    for i in {1..20}; do
-      if systemctl is-active --quiet pgbouncer; then
-        if ss -lntp | grep -q :6432; then
-          echo "PgBouncer is active and listening on port 6432"
-          # Test backend connection through PgBouncer
-          sleep 3
-          if PGPASSWORD='ChangeMe123Pass' timeout 5 psql -h 127.0.0.1 -p 6432 -U postgres -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
-            echo "SUCCESS: PgBouncer is running and can connect to backend PostgreSQL"
-            PGB_READY=true
-            break
-          else
-            echo "PgBouncer listening but backend connection not ready yet, waiting..."
-            sleep 5
-          fi
-        else
-          echo "PgBouncer service active but port 6432 not listening, waiting..."
-          sleep 3
-        fi
-      else
-        echo "PgBouncer service not active, attempting restart ($i/20)..."
+    MAX_RETRIES=30
+    
+    for i in $(seq 1 $MAX_RETRIES); do
+      # Check service is active
+      if ! systemctl is-active --quiet pgbouncer; then
+        echo "PgBouncer service not active (attempt $i/$MAX_RETRIES), checking status..."
+        systemctl status pgbouncer --no-pager -l || true
+        journalctl -u pgbouncer -n 10 --no-pager || true
+        echo "Restarting service..."
         systemctl restart pgbouncer || true
+        sleep 5
+        continue
+      fi
+      
+      # Check port is listening
+      if ! ss -lntp | grep -q :6432; then
+        echo "Service active but port 6432 not listening (attempt $i/$MAX_RETRIES)..."
+        sleep 3
+        continue
+      fi
+      
+      # Test connection through PgBouncer
+      sleep 3
+      if PGPASSWORD='ChangeMe123Pass' timeout 5 psql -h 127.0.0.1 -p 6432 -U postgres -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
+        echo "✓ PgBouncer is running and can connect to backend PostgreSQL"
+        PGB_READY=true
+        break
+      else
+        echo "PgBouncer listening but backend connection test failed (attempt $i/$MAX_RETRIES)..."
+        # Show connection error details
+        PGPASSWORD='ChangeMe123Pass' timeout 5 psql -h 127.0.0.1 -p 6432 -U postgres -d postgres -c "SELECT 1;" 2>&1 | head -5 || true
         sleep 5
       fi
     done
     
-    # Final verification
+    # Final diagnostics if not ready
     if [ "$PGB_READY" != "true" ]; then
-      echo "WARNING: PgBouncer may not be fully ready"
+      echo "=== PgBouncer diagnostic information ==="
       echo "Service status:"
-      systemctl status pgbouncer --no-pager || true
+      systemctl status pgbouncer --no-pager -l || true
+      echo ""
       echo "Port check:"
       ss -lntp | grep 6432 || echo "Port 6432 not listening"
+      echo ""
       echo "Recent logs:"
-      journalctl -u pgbouncer -n 30 --no-pager || true
-      # Try one more restart
+      journalctl -u pgbouncer -n 50 --no-pager || true
+      echo ""
+      echo "Config file check:"
+      ls -la /etc/pgbouncer/ || true
+      echo ""
+      echo "Process check:"
+      ps aux | grep pgbouncer || true
+      echo ""
       echo "Attempting final restart..."
       systemctl restart pgbouncer
-      sleep 5
+      sleep 10
     fi
     
-    # Final health check
+    # Final verification
     if systemctl is-active --quiet pgbouncer && ss -lntp | grep -q :6432; then
-      echo "✓ PgBouncer service is running"
+      if PGPASSWORD='ChangeMe123Pass' timeout 5 psql -h 127.0.0.1 -p 6432 -U postgres -d postgres -c "SELECT version();" >/dev/null 2>&1; then
+        echo "✓✓✓ PgBouncer service is fully operational ✓✓✓"
+      else
+        echo "⚠ PgBouncer service running but backend connection may have issues"
+      fi
     else
-      echo "✗ PgBouncer service failed to start properly"
+      echo "✗✗✗ PgBouncer service failed to start properly ✗✗✗"
       exit 1
     fi
