@@ -209,7 +209,8 @@ measure_failover() {
   local cluster_json leader candidate leader_ip candidate_ip start end dur
   cluster_json=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" 2>/dev/null || echo "")
   leader=$(echo "$cluster_json" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || true)
-  candidate=$(echo "$cluster_json" | jq -r '.members[] | select(.role!="leader") | .name' 2>/dev/null || true)
+  # Prefer sync_standby if available, else any non-leader running member
+  candidate=$(echo "$cluster_json" | jq -r '.members[] | select(.role!="leader" and ((.role=="sync_standby") or (.state=="running"))) | .name' 2>/dev/null | head -1 || true)
   if [[ -z "$leader" || -z "$candidate" ]]; then
     fail "Failover: cannot determine leader/candidate"
     return 1
@@ -223,11 +224,28 @@ measure_failover() {
 
   start=$(date +%s)
   # Request switchover
-  http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://${leader_ip}:$PATRONI_API_PORT/switchover" \
-    -H 'Content-Type: application/json' \
-    -d "{\"leader\":\"${leader}\",\"candidate\":\"${candidate}\"}")
-  if [[ "$http_code" != "200" && "$http_code" != "202" ]]; then
-    fail "Failover: switchover request failed (HTTP $http_code)"
+  # Attempt switchover with retries on 412 (precondition) by refreshing cluster state
+  sw_ok=false
+  for i in $(seq 1 10); do
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://${leader_ip}:$PATRONI_API_PORT/switchover" \
+      -H 'Content-Type: application/json' \
+      -d "{\"leader\":\"${leader}\",\"candidate\":\"${candidate}\"}")
+    if [[ "$http_code" == "200" || "$http_code" == "202" ]]; then
+      sw_ok=true; break
+    fi
+    if [[ "$http_code" == "412" ]]; then
+      sleep 2
+      # refresh cluster roles
+      cluster_json=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" 2>/dev/null || echo "")
+      leader=$(echo "$cluster_json" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || true)
+      candidate=$(echo "$cluster_json" | jq -r '.members[] | select(.role!="leader" and ((.role=="sync_standby") or (.state=="running"))) | .name' 2>/dev/null | head -1 || true)
+      leader_ip=$(name_to_ip "$leader")
+      continue
+    fi
+    break
+  done
+  if [[ "$sw_ok" != true ]]; then
+    fail "Failover: switchover request failed (HTTP ${http_code})"
     return 1
   fi
 
@@ -271,7 +289,11 @@ if ensure_pgbench >/dev/null 2>&1; then
   ensure_pgbench_init || true
   # short run to verify and show TPS
   out=$(PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 10 -c 8 -j 4 -M simple 2>/dev/null || true)
-  tps=$(echo "$out" | awk '/including connections initializing/ {print $(NF-1)}' | tail -1)
+  # Parse TPS from either summary format
+  tps=$(echo "$out" | awk -F'=' '/^tps/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); split($2,a," "); print a[1]}' | tail -1)
+  if [[ -z "$tps" ]]; then
+    tps=$(echo "$out" | awk '/including connections initializing/ {print $(NF-1)}' | tail -1)
+  fi
   if [[ -n "$tps" ]]; then
     pass "Performance test ran (~${tps} TPS)"
   else
@@ -300,7 +322,8 @@ failover_under_load() {
   fi
   # wait for pgbench to finish to capture TPS
   wait $bench_pid 2>/dev/null || true
-  local tps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1)
+  local tps=$(awk -F'=' '/^tps/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); split($2,a," "); v=a[1]} END{if(v!="") print v}' "$log")
+  if [[ -z "$tps" ]]; then tps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1); fi
   if [[ -n "$tps" ]]; then echo "   Load TPS (light): ${tps}"; fi
 }
 
@@ -321,7 +344,8 @@ failover_under_load_level() {
   sleep 5
   measure_failover && pass "Failover under load (${label}) measured" || fail "Failover under load (${label}) failed to measure"
   wait $bench_pid 2>/dev/null || true
-  local tps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1)
+  local tps=$(awk -F'=' '/^tps/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); split($2,a," "); v=a[1]} END{if(v!="") print v}' "$log")
+  if [[ -z "$tps" ]]; then tps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1); fi
   if [[ -n "$tps" ]]; then echo "   Load TPS (${label}): ${tps}"; fi
 }
 
