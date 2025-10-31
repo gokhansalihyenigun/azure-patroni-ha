@@ -530,7 +530,8 @@ test_zero_data_loss() {
   candidate=$(echo "$cluster_json" | jq -r '.members[] | select(.role!="leader" and (.state=="running")) | .name' 2>/dev/null | head -1)
   
   if [[ -z "$leader" ]] || [[ -z "$candidate" ]]; then
-    say "Cannot determine leader/candidate for failover test"
+    fail "Zero Data Loss Test: Cannot determine leader/candidate for failover test"
+    say "   Leader: ${leader:-none} | Candidate: ${candidate:-none}"
     kill $bench_pid 2>/dev/null || true
     return 1
   fi
@@ -567,7 +568,8 @@ test_zero_data_loss() {
   local switchover_end=$(date +%s)
   local failover_dur=$((switchover_end - switchover_start))
   
-  # Wait for pgbench to finish
+  # Wait for pgbench to finish (up to 35 seconds total)
+  say "Waiting for write workload to complete (may take up to 30 seconds)..."
   wait $bench_pid 2>/dev/null || true
   
   # Check transaction integrity
