@@ -245,7 +245,16 @@ measure_failover() {
     break
   done
   if [[ "$sw_ok" != true ]]; then
-    fail "Failover: switchover request failed (HTTP ${http_code})"
+    # Fallback: forced failover
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://${leader_ip}:$PATRONI_API_PORT/failover" \
+      -H 'Content-Type: application/json' \
+      -d "{\"leader\":\"${leader}\",\"candidate\":\"${candidate}\"}")
+    if [[ "$http_code" == "200" || "$http_code" == "202" ]]; then
+      sw_ok=true
+    fi
+  fi
+  if [[ "$sw_ok" != true ]]; then
+    fail "Failover: switchover/failover request failed (HTTP ${http_code})"
     return 1
   fi
 
@@ -359,7 +368,11 @@ profile_failover_tps() {
   ensure_pgbench_init || true
   local log="/tmp/pgbench_load_${label}.log"
   : > "$log"
-  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c "$clients" -j "$jobs" -P 2 -T "$t" -N -M simple >"$log" 2>&1 &
+  # Cap worker threads to CPU count to avoid instability
+  local maxj=$(nproc 2>/dev/null || echo 4)
+  local jobs_use=$jobs
+  if (( jobs_use > maxj )); then jobs_use=$maxj; fi
+  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c "$clients" -j "$jobs_use" -P 2 -T "$t" -N -M simple >"$log" 2>&1 &
   local bench_pid=$!
   sleep 5
   if measure_failover; then
