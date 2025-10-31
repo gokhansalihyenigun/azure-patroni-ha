@@ -90,6 +90,10 @@ Common issues and fixes:
 - This indicates etcd cluster was not properly formed
 - Run the split-brain fix script:
   ```bash
+  # Non-interactive (recommended)
+  AUTO_CONFIRM=yes ADMIN_PASS='Azure123!@#' curl -fsSL https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha/main/scripts/fix-split-brain.sh | bash
+  
+  # Or interactive (will ask for confirmation)
   ADMIN_PASS='Azure123!@#' curl -fsSL https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha/main/scripts/fix-split-brain.sh | bash
   ```
 - The script will reinitialize one node as a replica
