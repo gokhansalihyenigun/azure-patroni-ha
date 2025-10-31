@@ -12,12 +12,16 @@ echo ""
 ssh_cmd() {
   local ip="$1"
   shift
+  local cmd="$*"
   if command -v sshpass >/dev/null 2>&1; then
     sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no \
-      -o ConnectTimeout=10 -o BatchMode=yes \
-      azureuser@"$ip" "$@" 2>&1
+      -o ConnectTimeout=10 \
+      -o PubkeyAuthentication=no \
+      -o PreferredAuthentications=password \
+      azureuser@"$ip" "$cmd" 2>&1
   else
-    ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 azureuser@"$ip" "$@" 2>&1
+    echo "ERROR: sshpass not found. Install with: sudo apt-get install -y sshpass" >&2
+    return 1
   fi
 }
 
@@ -32,8 +36,8 @@ fi
 for ip in $PGB_VMS; do
   echo "--- Fixing PgBouncer on $ip ---"
   
-  # Create fix script
-  ssh_cmd "$ip" 'sudo bash -s' <<'FIXSCRIPT'
+  # Create fix script and execute via SSH
+  ssh_cmd "$ip" 'sudo bash' <<'FIXSCRIPT'
     set -e
     
     echo "Step 1: Ensuring PgBouncer package is installed..."
