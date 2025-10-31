@@ -212,9 +212,6 @@
       "sku": {
         "name": "Standard"
       },
-      "zones": [
-        "1"
-      ],
       "properties": {
         "publicIpAddresses": [
           {
