@@ -119,6 +119,22 @@ UNIT
     if ! ss -lntp | grep -q :6432; then
       echo "ERROR: PgBouncer is not listening on port 6432"
       systemctl status pgbouncer --no-pager || true
+      journalctl -u pgbouncer -n 20 --no-pager || true
     else
       echo "SUCCESS: PgBouncer is running and listening on port 6432"
+      # Backend bağlantısını test et
+      sleep 2
+      if PGPASSWORD='ChangeMe123Pass' psql -h 127.0.0.1 -p 6432 -U postgres -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
+        echo "SUCCESS: PgBouncer can connect to backend PostgreSQL"
+      else
+        echo "WARNING: PgBouncer started but cannot connect to backend PostgreSQL yet"
+        # Backend hazır olana kadar retry
+        for retry in {1..20}; do
+          sleep 3
+          if PGPASSWORD='ChangeMe123Pass' psql -h 127.0.0.1 -p 6432 -U postgres -d postgres -c "SELECT 1;" >/dev/null 2>&1; then
+            echo "SUCCESS: Backend connection established after retry"
+            break
+          fi
+        done
+      fi
     fi
