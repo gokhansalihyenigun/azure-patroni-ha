@@ -213,9 +213,7 @@
         "name": "Standard"
       },
       "zones": [
-        "1",
-        "2",
-        "3"
+        "1"
       ],
       "properties": {
         "publicIpAddresses": [
