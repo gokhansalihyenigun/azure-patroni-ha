@@ -386,10 +386,10 @@ flowchart LR
 
 #### **1. Database Tier (PostgreSQL Cluster)**
 - **Node Sayısı**: 2 veya 3 (yapılandırılabilir)
-- **VM Boyutu**: Standard_D8s_v6 (varsayılan - **v6 serisi en yüksek performans için**)
-  - **CPU**: 8 vCPU
-  - **RAM**: 32 GB
-  - **Performans**: En yeni nesil Intel/AMD işlemciler, geliştirilmiş ağ performansı
+- **VM Boyutu**: Standard_D32s_v6 (varsayılan - **v6 serisi maksimum performans için**)
+  - **CPU**: 32 vCPU
+  - **RAM**: 128 GB
+  - **Performans**: En yeni nesil Intel/AMD işlemciler, geliştirilmiş ağ performansı, yüksek paralel işlem kapasitesi
 - **Diskler**:
   - **Data Disk**: 1024 GB Premium SSD v2 (PremiumV2_LRS - **en yüksek IOPS ve throughput**)
   - **WAL Disk**: 512 GB Premium SSD v2 (PremiumV2_LRS)
@@ -409,9 +409,9 @@ flowchart LR
 
 #### **3. Connection Pooler Tier (PgBouncer)**
 - **Node Sayısı**: 2 (Zone 1 ve Zone 3)
-- **VM Boyutu**: Standard_D4s_v6 (**v6 serisi yüksek performans için**)
-  - **CPU**: 4 vCPU
-  - **RAM**: 16 GB
+- **VM Boyutu**: Standard_D16s_v6 (**v6 serisi maksimum performans için**)
+  - **CPU**: 16 vCPU
+  - **RAM**: 64 GB
 - **Pool Mode**: Transaction
 - **Default Pool Size**: 200 bağlantı
 - **Max Client Connections**: 2000 bağlantı

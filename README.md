@@ -24,7 +24,7 @@ Azure Patroni HA, Active-Passive with ILB and optional ELB, plus PgBouncer tier
 - **prefix**: Resource name prefix (default: pgpatroni)
 - **adminUsername**: VM admin username (default: azureuser)
 - **adminPassword**: VM admin password (default: Azure123!@#)
-- **vmSize**: Database VM size (dropdown, default: Standard_D8s_v6 - **v6 series for best performance**)
+- **vmSize**: Database VM size (dropdown, default: Standard_D32s_v6 - **32 vCPU, 128 GB RAM - v6 series for maximum performance**)
 - **numberOfNodes**: Number of database nodes - 2 or 3 (default: 2)
 - **dataDiskSizeGB**: Data disk size in GB (default: 1024)
 - **walDiskSizeGB**: WAL disk size in GB (default: 512)
