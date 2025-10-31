@@ -740,7 +740,6 @@
             }
           }
         },
-        "hyperVGeneration": "V2",
         "networkProfile": {
           "networkInterfaces": [
             {
