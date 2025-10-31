@@ -340,7 +340,7 @@ if ensure_pgbench >/dev/null 2>&1; then
     pass "Performance test ran"
   fi
 else
-  echo "pgbench not installed, skipping performance test"
+  say "pgbench not installed, skipping performance test"
 fi
 
 # Failover under load (optional)
