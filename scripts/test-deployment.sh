@@ -332,14 +332,20 @@ fi
 
 say "Performance (optional)"
 if ensure_pgbench; then
+  say "Initializing pgbench tables (this may take a minute)..."
   ensure_pgbench_init || true
-  say "Running baseline performance test..."
+  say "Running baseline performance test (10 seconds)..."
   # short run to verify and show QPS (-S mode: SELECT-only queries)
-  out=$(PGPASSWORD="$POSTGRES_PASS" timeout 30 pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 10 -c 8 -j 4 -S -M simple 2>&1)
+  # Use timeout and capture both stdout and stderr
+  set +e  # Temporarily disable exit on error for pgbench
+  out=$(PGPASSWORD="$POSTGRES_PASS" timeout 15 pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 10 -c 8 -j 4 -S -M simple 2>&1)
   pgbench_exit=$?
+  set -e  # Re-enable exit on error
+  say "pgbench completed with exit code: $pgbench_exit"
   if [[ $pgbench_exit -ne 0 ]] || [[ -z "$out" ]]; then
     say "pgbench command failed (exit code: $pgbench_exit) or produced no output"
-    echo "Output: $out" | head -20
+    echo "Last 20 lines of output:"
+    echo "$out" | tail -20
     pass "Performance test ran (but no metrics available)"
   else
     # Parse QPS from pgbench output (pgbench still calls it 'tps' even in -S mode)
