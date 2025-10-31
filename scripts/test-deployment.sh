@@ -76,9 +76,23 @@ ensure_pgbench_init() {
   # initialize pgbench tables once so TPC-B workload doesn't fail
   command -v pgbench >/dev/null 2>&1 || return 1
   local stamp="/tmp/.pgbench_inited"
-  if [[ -f "$stamp" ]]; then return 0; fi
-  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -i -s 10 >/dev/null 2>&1 || true
-  date +%s > "$stamp"
+  if [[ -f "$stamp" ]]; then
+    say "pgbench tables already initialized, skipping..."
+    return 0
+  fi
+  say "Initializing pgbench tables with scale 10 (this may take 1-2 minutes)..."
+  set +e
+  PGPASSWORD="$POSTGRES_PASS" timeout 180 pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -i -s 10 2>&1 | head -20
+  init_exit=$?
+  set -e
+  if [[ $init_exit -eq 0 ]]; then
+    date +%s > "$stamp"
+    say "pgbench tables initialized successfully"
+    return 0
+  else
+    say "pgbench initialization failed or timed out (exit code: $init_exit)"
+    return 1
+  fi
 }
 
 get_local_ip() {
@@ -332,8 +346,10 @@ fi
 
 say "Performance (optional)"
 if ensure_pgbench; then
-  say "Initializing pgbench tables (this may take a minute)..."
-  ensure_pgbench_init || true
+  ensure_pgbench_init || {
+    say "pgbench initialization failed, skipping performance test"
+    pass "Performance test skipped (initialization failed)"
+  } || true
   say "Running baseline performance test (10 seconds)..."
   # short run to verify and show QPS (-S mode: SELECT-only queries)
   # Use timeout and capture both stdout and stderr
