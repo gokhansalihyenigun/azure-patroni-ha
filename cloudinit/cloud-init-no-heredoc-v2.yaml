@@ -15,11 +15,34 @@ write_files:
       #!/bin/bash
       HOSTNAME=$(hostname -s)
       IP=$(ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
+      
+      # Determine if this is the first node (pgpatroni-1) or not
+      # First node uses "new", others wait for cluster to exist then use "existing"
+      if [ "$HOSTNAME" = "pgpatroni-1" ]; then
+        CLUSTER_STATE="new"
+      else
+        # For non-first nodes, wait up to 5 minutes for cluster to be ready
+        CLUSTER_STATE="existing"
+        MAX_WAIT=300
+        ELAPSED=0
+        while [ $ELAPSED -lt $MAX_WAIT ]; do
+          # Check if any etcd node in cluster is accessible
+          if curl -fsS http://10.50.1.4:2379/health >/dev/null 2>&1 || \
+             curl -fsS http://10.50.1.5:2379/health >/dev/null 2>&1 || \
+             curl -fsS http://10.50.1.7:2379/health >/dev/null 2>&1; then
+            echo "etcd cluster detected, proceeding with existing state"
+            break
+          fi
+          sleep 5
+          ELAPSED=$((ELAPSED + 5))
+        done
+      fi
+      
       cat > /etc/default/etcd <<'ETCDEOF'
       ETCD_NAME="${HOSTNAME}"
       ETCD_INITIAL_CLUSTER_TOKEN="pg-ha-token"
       ETCD_INITIAL_CLUSTER="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380,pgpatroni-pgb-1=http://10.50.1.7:2380"
-      ETCD_INITIAL_CLUSTER_STATE="new"
+      ETCD_INITIAL_CLUSTER_STATE="${CLUSTER_STATE}"
       ETCD_INITIAL_ADVERTISE_PEER_URLS="http://${IP}:2380"
       ETCD_ADVERTISE_CLIENT_URLS="http://${IP}:2379"
       ETCD_LISTEN_PEER_URLS="http://${IP}:2380"
@@ -27,6 +50,7 @@ write_files:
       ETCDEOF
       sed -i "s/\${HOSTNAME}/${HOSTNAME}/g" /etc/default/etcd
       sed -i "s/\${IP}/${IP}/g" /etc/default/etcd
+      sed -i "s/\${CLUSTER_STATE}/${CLUSTER_STATE}/g" /etc/default/etcd
   
   - path: /tmp/setup-patroni.sh
     permissions: '0755'
@@ -157,7 +181,26 @@ runcmd:
   - systemctl disable postgresql || true
   - systemctl enable etcd
   - systemctl restart etcd
-  - sleep 10
+  - |
+    # Wait for etcd to be fully ready (especially for non-first nodes joining existing cluster)
+    HOSTNAME=$(hostname -s)
+    if [ "$HOSTNAME" != "pgpatroni-1" ]; then
+      echo "Waiting for etcd cluster to be ready..."
+      for i in {1..60}; do
+        if curl -fsS http://127.0.0.1:2379/health >/dev/null 2>&1; then
+          # Check if we can reach at least one other etcd node
+          if curl -fsS http://10.50.1.4:2379/health >/dev/null 2>&1 || \
+             curl -fsS http://10.50.1.5:2379/health >/dev/null 2>&1 || \
+             curl -fsS http://10.50.1.7:2379/health >/dev/null 2>&1; then
+            echo "etcd cluster is ready"
+            break
+          fi
+        fi
+        sleep 2
+      done
+    else
+      sleep 10
+    fi
   - pip3 install patroni[etcd] requests
   - mkdir -p /etc/patroni
   - |
@@ -182,6 +225,29 @@ runcmd:
       chmod 700 /pgwal
     fi
   - systemctl daemon-reload
+  - |
+    # Wait for etcd cluster to be stable before starting Patroni (especially for non-first nodes)
+    HOSTNAME=$(hostname -s)
+    if [ "$HOSTNAME" != "pgpatroni-1" ]; then
+      echo "Waiting for etcd cluster stability before starting Patroni..."
+      sleep 10
+      # Verify etcd cluster is healthy
+      for i in {1..30}; do
+        if curl -fsS http://127.0.0.1:2379/health >/dev/null 2>&1; then
+          echo "Local etcd is healthy"
+          break
+        fi
+        sleep 2
+      done
+    fi
   - systemctl enable patroni
-  - systemctl start patroni
+  - |
+    # Start Patroni, but for non-first nodes, wait a bit more for leader to establish
+    HOSTNAME=$(hostname -s)
+    systemctl start patroni
+    if [ "$HOSTNAME" != "pgpatroni-1" ]; then
+      echo "Started Patroni on non-leader node, it will join cluster as replica"
+      # Give Patroni time to connect to etcd and discover leader
+      sleep 15
+    fi
 

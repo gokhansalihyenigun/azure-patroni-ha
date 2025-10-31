@@ -12,10 +12,25 @@ write_files:
       #!/bin/bash
       HOSTNAME=$(hostname -s)
       IP=$(ip -4 addr show dev eth0 | awk '/inet /{print $2}' | cut -d/ -f1)
+      # For PgBouncer node, etcd should join existing cluster (not create new)
+      # Wait for DB nodes' etcd to be ready first
+      MAX_WAIT=300
+      ELAPSED=0
+      while [ $ELAPSED -lt $MAX_WAIT ]; do
+        if curl -fsS http://10.50.1.4:2379/health >/dev/null 2>&1 || \
+           curl -fsS http://10.50.1.5:2379/health >/dev/null 2>&1; then
+          echo "etcd cluster detected, proceeding with existing state"
+          break
+        fi
+        sleep 5
+        ELAPSED=$((ELAPSED + 5))
+      done
+      
       cat > /etc/default/etcd <<'ETCDEOF'
       ETCD_NAME="${HOSTNAME}"
+      ETCD_INITIAL_CLUSTER_TOKEN="pg-ha-token"
       ETCD_INITIAL_CLUSTER="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380,pgpatroni-pgb-1=http://10.50.1.7:2380"
-      ETCD_INITIAL_CLUSTER_STATE="new"
+      ETCD_INITIAL_CLUSTER_STATE="existing"
       ETCD_INITIAL_ADVERTISE_PEER_URLS="http://${IP}:2380"
       ETCD_ADVERTISE_CLIENT_URLS="http://${IP}:2379"
       ETCD_LISTEN_PEER_URLS="http://${IP}:2380"
