@@ -517,9 +517,17 @@ test_zero_data_loss() {
   
   # Trigger failover during write workload
   say "Triggering failover during write workload..."
+  # Refresh CLUSTER_JSON if not available (function scope)
+  local cluster_json="$CLUSTER_JSON"
+  if [[ -z "$cluster_json" ]]; then
+    for ip in "${DB_NODES[@]}"; do
+      local out=$(curl -fsS "http://$ip:$PATRONI_API_PORT/cluster" 2>/dev/null || true)
+      if [[ -n "$out" ]]; then cluster_json="$out"; break; fi
+    done
+  fi
   local leader candidate
-  leader=$(echo "$CLUSTER_JSON" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null | head -1)
-  candidate=$(echo "$CLUSTER_JSON" | jq -r '.members[] | select(.role!="leader" and (.state=="running")) | .name' 2>/dev/null | head -1)
+  leader=$(echo "$cluster_json" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null | head -1)
+  candidate=$(echo "$cluster_json" | jq -r '.members[] | select(.role!="leader" and (.state=="running")) | .name' 2>/dev/null | head -1)
   
   if [[ -z "$leader" ]] || [[ -z "$candidate" ]]; then
     say "Cannot determine leader/candidate for failover test"
