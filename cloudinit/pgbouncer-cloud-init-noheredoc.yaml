@@ -68,24 +68,32 @@ runcmd:
   - chown pgbouncer:pgbouncer /etc/pgbouncer/userlist.txt
   - chmod 640 /etc/pgbouncer/userlist.txt
   - chown -R pgbouncer:pgbouncer /etc/pgbouncer /var/log/pgbouncer /run/pgbouncer
-  - tee /etc/systemd/system/pgbouncer.service >/dev/null <<'UNIT' 
-      [Unit]
-      Description=PgBouncer connection pooler
-      After=network.target
-
-      [Service]
-      User=pgbouncer
-      Group=pgbouncer
-      Type=simple
-      ExecStart={{ pgbouncer_bin | default('/usr/sbin/pgbouncer') }} -q /etc/pgbouncer/pgbouncer.ini
-      PIDFile=/run/pgbouncer/pgbouncer.pid
-      RuntimeDirectory=pgbouncer
-      RuntimeDirectoryMode=0755
-      Restart=on-failure
-      RestartSec=2
-
-      [Install]
-      WantedBy=multi-user.target
+  - |
+    # Find PgBouncer binary location (ensure it's installed first)
+    PGB_BIN=$(which pgbouncer 2>/dev/null || find /usr -name pgbouncer -type f 2>/dev/null | head -1 || echo "/usr/sbin/pgbouncer")
+    if [ ! -x "$PGB_BIN" ]; then
+      echo "PgBouncer binary not found at $PGB_BIN, ensuring package is installed..."
+      apt-get update -qq >/dev/null 2>&1 || true
+      DEBIAN_FRONTEND=noninteractive apt-get install -y pgbouncer >/dev/null 2>&1 || true
+      PGB_BIN=$(which pgbouncer 2>/dev/null || find /usr -name pgbouncer -type f 2>/dev/null | head -1 || echo "/usr/sbin/pgbouncer")
+    fi
+    echo "Using PgBouncer binary: $PGB_BIN"
+    tee /etc/systemd/system/pgbouncer.service >/dev/null <<UNIT
+[Unit]
+Description=PgBouncer connection pooler
+After=network.target
+[Service]
+User=pgbouncer
+Group=pgbouncer
+Type=simple
+ExecStart=$PGB_BIN -q /etc/pgbouncer/pgbouncer.ini
+PIDFile=/run/pgbouncer/pgbouncer.pid
+RuntimeDirectory=pgbouncer
+RuntimeDirectoryMode=0755
+Restart=on-failure
+RestartSec=2
+[Install]
+WantedBy=multi-user.target
 UNIT
   - systemctl daemon-reload
   - systemctl enable pgbouncer
