@@ -237,6 +237,17 @@ measure_failover() {
   fi
 
   start=$(date +%s)
+  # Wait for candidate to become sync_standby (max 180s for basebackup + catchup)
+  sync_wait=0
+  while [[ $sync_wait -lt 180 ]]; do
+    candidate_sync=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" | jq -r ".members[] | select(.name==\"${candidate}\" and .role==\"sync_standby\") | .name" 2>/dev/null || echo "")
+    if [[ "$candidate_sync" == "$candidate" ]]; then break; fi
+    candidate_state=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" | jq -r ".members[] | select(.name==\"${candidate}\") | .state" 2>/dev/null || echo "")
+    [[ "$candidate_state" == "creating replica" ]] && sleep 5 && sync_wait=$((sync_wait+5)) && continue
+    sleep 2
+    sync_wait=$((sync_wait+2))
+  done
+  
   # Request switchover
   # Attempt switchover with retries on 412 (precondition) by refreshing cluster state
   sw_ok=false
@@ -249,11 +260,15 @@ measure_failover() {
     fi
     if [[ "$http_code" == "412" ]]; then
       sleep 2
-      # refresh cluster roles
+      # refresh cluster roles, prefer sync_standby
       cluster_json=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" 2>/dev/null || echo "")
       leader=$(echo "$cluster_json" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || true)
-      candidate=$(echo "$cluster_json" | jq -r '.members[] | select(.role!="leader" and ((.role=="sync_standby") or (.state=="running"))) | .name' 2>/dev/null | head -1 || true)
+      candidate=$(echo "$cluster_json" | jq -r '.members[] | select(.role=="sync_standby") | .name' 2>/dev/null | head -1 || true)
+      [[ -z "$candidate" ]] && candidate=$(echo "$cluster_json" | jq -r '.members[] | select(.role!="leader" and .state=="running") | .name' 2>/dev/null | head -1 || true)
       leader_ip=$(name_to_ip "$leader")
+      # Re-check sync_standby before next attempt
+      candidate_sync=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" | jq -r ".members[] | select(.name==\"${candidate}\" and .role==\"sync_standby\") | .name" 2>/dev/null || echo "")
+      [[ "$candidate_sync" != "$candidate" ]] && sleep 5
       continue
     fi
     break
