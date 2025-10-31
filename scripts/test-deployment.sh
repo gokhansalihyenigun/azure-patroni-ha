@@ -345,7 +345,10 @@ fi
 
 # Failover under load (optional)
 failover_under_load() {
-  command -v pgbench >/dev/null 2>&1 || return 0
+  if ! ensure_pgbench >/dev/null 2>&1; then
+    say "pgbench not available, skipping failover under load test"
+    return 0
+  fi
   say "Failover under load"
   # start light write load via ILB
   ensure_pgbench_init || true
@@ -453,10 +456,14 @@ profile_failover_qps() {
 }
 
 # Approximate client/job settings for 2k/3k/4k/8k QPS targets (SELECT-only queries); adjust per VM size.
-profile_failover_qps 2000 64 16 || true
-profile_failover_qps 3000 96 24 || true
-profile_failover_qps 4000 128 32 || true
-profile_failover_qps 8000 256 64 || true
+if ensure_pgbench >/dev/null 2>&1; then
+  profile_failover_qps 2000 64 16 || true
+  profile_failover_qps 3000 96 24 || true
+  profile_failover_qps 4000 128 32 || true
+  profile_failover_qps 8000 256 64 || true
+else
+  say "pgbench not available, skipping QPS profile failover tests"
+fi
 
  
 
