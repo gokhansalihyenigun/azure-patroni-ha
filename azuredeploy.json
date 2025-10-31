@@ -199,11 +199,6 @@
       "sku": {
         "name": "Standard"
       },
-      "zones": [
-        "1",
-        "2",
-        "3"
-      ],
       "properties": {
         "publicIPAllocationMethod": "Static",
         "publicIPAddressVersion": "IPv4"
