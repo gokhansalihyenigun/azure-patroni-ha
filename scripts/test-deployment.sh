@@ -401,7 +401,9 @@ profile_failover_tps() {
     local dur="$FAILOVER_DUR" desc="$FAILOVER_DESC"
     pass "Failover under load (${label}) measured"
     wait $bench_pid 2>/dev/null || true
-    local tps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1)
+    # Robust TPS parse: prefer 'tps = NNN' line, fallback to legacy format
+    local tps=$(awk -F'=' '/^tps/ {gsub(/^[ \t]+|[ \t]+$/,"",$2); split($2,a," "); v=a[1]} END{if(v!="") print v}' "$log")
+    if [[ -z "$tps" ]]; then tps=$(awk '/including connections initializing/ {print $(NF-1)}' "$log" | tail -1); fi
     echo "   Target: ${label} | Achieved TPS: ${tps:-n/a} | Failover: ${dur}s (${desc})"
   else
     fail "Failover under load (${label}) failed to measure"
