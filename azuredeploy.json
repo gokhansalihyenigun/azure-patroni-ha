@@ -667,7 +667,8 @@
             "createOption": "FromImage",
             "managedDisk": {
               "storageAccountType": "Premium_LRS"
-            }
+            },
+            "hyperVGeneration": "V2"
           },
           "dataDisks": [
             {
@@ -737,7 +738,8 @@
             "createOption": "FromImage",
             "managedDisk": {
               "storageAccountType": "Premium_LRS"
-            }
+            },
+            "hyperVGeneration": "V2"
           }
         },
         "networkProfile": {
