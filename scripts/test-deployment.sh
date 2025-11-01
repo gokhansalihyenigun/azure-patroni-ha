@@ -774,7 +774,17 @@ test_zero_data_loss() {
     "SELECT COUNT(*) FROM pgbench_accounts WHERE abalance >= 0;" 2>/dev/null || echo "0")
   
   # Debug: Show pgbench log summary if transaction count is unknown or suspiciously low
-  if [[ "$total_tx" == "unknown" ]] || [[ "$total_tx" -lt 10 ]]; then
+  # Note: Compare total_tx as string to handle "N/A" and numeric comparison
+  local show_debug=false
+  if [[ "$total_tx" == "unknown" ]]; then
+    show_debug=true
+  elif [[ "$total_tx" == "N/A"* ]]; then
+    show_debug=true
+  elif [[ "$total_tx" =~ ^[0-9]+$ ]] && [[ "$total_tx" -lt 10 ]]; then
+    show_debug=true
+  fi
+  
+  if [[ "$show_debug" == "true" ]]; then
     say "   Debug: pgbench log summary (checking for transaction count)..."
     tail -15 "$log" 2>/dev/null | sed 's/^/      /' || true
     # Also show lines with "transaction" keyword
