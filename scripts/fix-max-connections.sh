@@ -47,28 +47,43 @@ for host in "${DB_NODES[@]}"; do
     # Remove max_connections from postgresql.conf (it overrides auto.conf)
     say "Removing max_connections from postgresql.conf (it overrides auto.conf)..."
     ssh_cmd "$host" "sudo -u postgres bash" <<'BASH'
-# Completely remove max_connections line from postgresql.conf (including commented versions)
+# Completely remove max_connections from postgresql.conf (including commented versions)
 sed -i '/^[[:space:]]*#.*max_connections/d' /pgdata/postgresql.conf 2>/dev/null || true
 sed -i '/^[[:space:]]*max_connections/d' /pgdata/postgresql.conf 2>/dev/null || true
 
-# Also check for include files
+# CRITICAL: Also check for include files (postgresql.base.conf is commonly included)
 if grep -q "^include" /pgdata/postgresql.conf 2>/dev/null; then
-  echo "Warning: postgresql.conf has include statements, checking included files..."
+  echo "Found include statements, checking included files..."
   for inc_file in $(grep "^include" /pgdata/postgresql.conf | awk '{print $NF}' | tr -d "'\""); do
     if [[ -f "/pgdata/$inc_file" ]]; then
-      echo "Checking /pgdata/$inc_file"
+      echo "Removing max_connections from /pgdata/$inc_file"
+      sed -i '/^[[:space:]]*#.*max_connections/d' "/pgdata/$inc_file" 2>/dev/null || true
       sed -i '/^[[:space:]]*max_connections/d' "/pgdata/$inc_file" 2>/dev/null || true
     fi
   done
 fi
+
+# Also check common include file names directly
+for inc_file in postgresql.base.conf postgresql.conf.base postgresql.conf.default; do
+  if [[ -f "/pgdata/$inc_file" ]]; then
+    echo "Found /pgdata/$inc_file, removing max_connections..."
+    sed -i '/^[[:space:]]*max_connections/d' "/pgdata/$inc_file" 2>/dev/null || true
+  fi
+done
 
 # Ensure it's in postgresql.auto.conf
 sed -i '/^max_connections/d' /pgdata/postgresql.auto.conf 2>/dev/null || true
 echo "max_connections = '500'" >> /pgdata/postgresql.auto.conf
 
 # Verify
-echo "=== postgresql.conf (should have no max_connections) ==="
+echo "=== postgresql.conf ==="
 grep -i max_connection /pgdata/postgresql.conf 2>/dev/null || echo "  ✓ Not found (good!)"
+echo "=== postgresql.base.conf (if exists) ==="
+if [[ -f "/pgdata/postgresql.base.conf" ]]; then
+  grep -i max_connection /pgdata/postgresql.base.conf 2>/dev/null || echo "  ✓ Not found (good!)"
+else
+  echo "  (file not found)"
+fi
 echo "=== postgresql.auto.conf ==="
 grep max_connections /pgdata/postgresql.auto.conf 2>/dev/null || echo "  ✗ Not found (error!)"
 BASH
