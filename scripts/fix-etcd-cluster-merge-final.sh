@@ -139,104 +139,48 @@ fi
 
 # Step 7: Update etcd config on rejoin node
 say "Updating etcd configuration on rejoin node..."
-ssh_cmd "$rejoin_node_ip" "sudo bash" <<'ETCD_CONFIG'
-# Backup current config
-cp /etc/default/etcd /etc/default/etcd.backup.$(date +%s) 2>/dev/null || true
+say "  Creating new etcd config..."
 
-# Get all cluster members (from primary)
-PRIMARY_IP="${1:-10.50.1.5}"
-ETCD_NAME="${2:-pgpatroni-1}"
-NODE_IP="${3:-10.50.1.4}"
-
-# Get member list from primary
-MEMBERS_JSON=$(curl -fsS "http://${PRIMARY_IP}:2379/v2/members" 2>/dev/null || echo "[]")
-CLUSTER_LIST=""
-
-# Build cluster list
-for member in $(echo "$MEMBERS_JSON" | jq -r '.members[] | "\(.name // "unknown"):\(.peerURLs[0])"' 2>/dev/null); do
-  member_name="${member%%:*}"
-  member_url="${member##*:}"
-  if [[ -z "$CLUSTER_LIST" ]]; then
-    CLUSTER_LIST="${member_name}=${member_url}"
-  else
-    CLUSTER_LIST="${CLUSTER_LIST},${member_name}=${member_url}"
-  fi
-done
-
-# If cluster list is empty, build from known nodes
-if [[ -z "$CLUSTER_LIST" ]] || [[ "$CLUSTER_LIST" == *"unknown"* ]]; then
-  CLUSTER_LIST="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380"
+if [[ "$rejoin_node_ip" == "10.50.1.4" ]]; then
+  ssh_cmd "$rejoin_node_ip" "sudo bash -c '
+cp /etc/default/etcd /etc/default/etcd.backup.\$(date +%s) 2>/dev/null || true
+cat > /etc/default/etcd <<\"EOF\"
+ETCD_NAME=\"pgpatroni-1\"
+ETCD_INITIAL_CLUSTER_TOKEN=\"pg-ha-token\"
+ETCD_INITIAL_CLUSTER=\"pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380\"
+ETCD_INITIAL_CLUSTER_STATE=\"existing\"
+ETCD_INITIAL_ADVERTISE_PEER_URLS=\"http://10.50.1.4:2380\"
+ETCD_ADVERTISE_CLIENT_URLS=\"http://10.50.1.4:2379\"
+ETCD_LISTEN_PEER_URLS=\"http://10.50.1.4:2380\"
+ETCD_LISTEN_CLIENT_URLS=\"http://127.0.0.1:2379,http://10.50.1.4:2379\"
+EOF
+echo \"Updated /etc/default/etcd:\"
+cat /etc/default/etcd
+'"
+else
+  ssh_cmd "$rejoin_node_ip" "sudo bash -c '
+cp /etc/default/etcd /etc/default/etcd.backup.\$(date +%s) 2>/dev/null || true
+cat > /etc/default/etcd <<\"EOF\"
+ETCD_NAME=\"pgpatroni-2\"
+ETCD_INITIAL_CLUSTER_TOKEN=\"pg-ha-token\"
+ETCD_INITIAL_CLUSTER=\"pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380\"
+ETCD_INITIAL_CLUSTER_STATE=\"existing\"
+ETCD_INITIAL_ADVERTISE_PEER_URLS=\"http://10.50.1.5:2380\"
+ETCD_ADVERTISE_CLIENT_URLS=\"http://10.50.1.5:2379\"
+ETCD_LISTEN_PEER_URLS=\"http://10.50.1.5:2380\"
+ETCD_LISTEN_CLIENT_URLS=\"http://127.0.0.1:2379,http://10.50.1.5:2379\"
+EOF
+echo \"Updated /etc/default/etcd:\"
+cat /etc/default/etcd
+'"
 fi
 
-# Update /etc/default/etcd
-cat > /etc/default/etcd <<EOF
-ETCD_NAME="${ETCD_NAME}"
-ETCD_INITIAL_CLUSTER_TOKEN="pg-ha-token"
-ETCD_INITIAL_CLUSTER="${CLUSTER_LIST}"
-ETCD_INITIAL_CLUSTER_STATE="existing"
-ETCD_INITIAL_ADVERTISE_PEER_URLS="http://${NODE_IP}:2380"
-ETCD_ADVERTISE_CLIENT_URLS="http://${NODE_IP}:2379"
-ETCD_LISTEN_PEER_URLS="http://${NODE_IP}:2380"
-ETCD_LISTEN_CLIENT_URLS="http://127.0.0.1:2379,http://${NODE_IP}:2379"
-EOF
-
-echo "Updated /etc/default/etcd:"
-cat /etc/default/etcd
-ETCD_CONFIG
-
-# Call with parameters
-case "$rejoin_node_ip" in
-  10.50.1.4)
-    ssh_cmd "$rejoin_node_ip" "sudo bash" <<EOF
-$(cat <<'ETCD_CONFIG_INNER'
-PRIMARY_IP="10.50.1.5"
-ETCD_NAME="pgpatroni-1"
-NODE_IP="10.50.1.4"
-MEMBERS_JSON=\$(curl -fsS "http://\${PRIMARY_IP}:2379/v2/members" 2>/dev/null || echo "[]")
-CLUSTER_LIST="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380"
-cat > /etc/default/etcd <<'CFGEOF'
-ETCD_NAME="pgpatroni-1"
-ETCD_INITIAL_CLUSTER_TOKEN="pg-ha-token"
-ETCD_INITIAL_CLUSTER="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380"
-ETCD_INITIAL_CLUSTER_STATE="existing"
-ETCD_INITIAL_ADVERTISE_PEER_URLS="http://10.50.1.4:2380"
-ETCD_ADVERTISE_CLIENT_URLS="http://10.50.1.4:2379"
-ETCD_LISTEN_PEER_URLS="http://10.50.1.4:2380"
-ETCD_LISTEN_CLIENT_URLS="http://127.0.0.1:2379,http://10.50.1.4:2379"
-CFGEOF
-echo "Updated /etc/default/etcd"
-cat /etc/default/etcd
-ETCD_CONFIG_INNER
-)
-EOF
-    ;;
-  10.50.1.5)
-    ssh_cmd "$rejoin_node_ip" "sudo bash" <<EOF
-$(cat <<'ETCD_CONFIG_INNER'
-PRIMARY_IP="10.50.1.4"
-ETCD_NAME="pgpatroni-2"
-NODE_IP="10.50.1.5"
-MEMBERS_JSON=\$(curl -fsS "http://\${PRIMARY_IP}:2379/v2/members" 2>/dev/null || echo "[]")
-CLUSTER_LIST="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380"
-cat > /etc/default/etcd <<'CFGEOF'
-ETCD_NAME="pgpatroni-2"
-ETCD_INITIAL_CLUSTER_TOKEN="pg-ha-token"
-ETCD_INITIAL_CLUSTER="pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380"
-ETCD_INITIAL_CLUSTER_STATE="existing"
-ETCD_INITIAL_ADVERTISE_PEER_URLS="http://10.50.1.5:2380"
-ETCD_ADVERTISE_CLIENT_URLS="http://10.50.1.5:2379"
-ETCD_LISTEN_PEER_URLS="http://10.50.1.5:2380"
-ETCD_LISTEN_CLIENT_URLS="http://127.0.0.1:2379,http://10.50.1.5:2379"
-CFGEOF
-echo "Updated /etc/default/etcd"
-cat /etc/default/etcd
-ETCD_CONFIG_INNER
-)
-EOF
-    ;;
-esac
-
-pass "etcd configuration updated"
+if [[ $? -eq 0 ]]; then
+  pass "etcd configuration updated"
+else
+  fail "Failed to update etcd configuration"
+  exit 1
+fi
 
 # Step 8: Start etcd on rejoin node
 say "Starting etcd on rejoin node..."
