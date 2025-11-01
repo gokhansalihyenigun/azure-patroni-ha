@@ -885,7 +885,19 @@ profile_failover_qps() {
     else
       qps=""  # Invalid format, treat as missing
     fi
-    echo "   Target: ${label} QPS | Achieved QPS: ${qps:-n/a} | Failover: ${dur}s (${desc})"
+    local result_msg="   Target: ${label} QPS | Achieved QPS: ${qps:-n/a} | Failover: ${dur}s (${desc})"
+    # Add note if achieved QPS is much higher than target (system at capacity or pool size limit)
+    if [[ -n "$qps" ]] && [[ "$qps" =~ ^[0-9]+$ ]]; then
+      local target_num=${label//[^0-9]/}
+      if [[ -n "$target_num" ]] && [[ "$target_num" -lt "$qps" ]] && (( qps > target_num * 3 )); then
+        if [[ "$LOAD_TEST_HOST" == "$PGB_ILB_IP" ]]; then
+          result_msg="${result_msg} [Note: Achieved QPS much higher than target - system at capacity or PgBouncer pool_size may be limiting effective scaling]"
+        else
+          result_msg="${result_msg} [Note: Achieved QPS much higher than target - system at capacity]"
+        fi
+      fi
+    fi
+    echo "$result_msg"
   else
     fail "Failover under load (${label} QPS) failed to measure"
     kill $bench_pid >/dev/null 2>&1 || true
@@ -894,21 +906,21 @@ profile_failover_qps() {
 }
 
 # Approximate client/job settings for 2k/3k/4k/8k QPS targets (SELECT-only queries)
-# Note: These are starting points. Real achieved QPS depends on system capacity.
-# Client count should scale with target QPS, jobs can be lower (I/O bound).
-# PgBouncer connection pooling may limit effective concurrent connections.
+# Note: Real achieved QPS depends on system capacity and PgBouncer pool_size.
+# Lower targets use fewer clients to create lighter load.
+# Higher targets use more clients, but PgBouncer pool_size (default 200) may limit effectiveness.
 if ensure_pgbench; then
-  # 2000 QPS: Moderate load - fewer clients/jobs
-  profile_failover_qps 2000 32 8 || true
+  # 2000 QPS: Light load - minimal clients/jobs to achieve target
+  profile_failover_qps 2000 20 4 || true
   sleep 5  # Brief pause between tests
-  # 3000 QPS: Medium load
-  profile_failover_qps 3000 48 12 || true
+  # 3000 QPS: Medium-light load
+  profile_failover_qps 3000 30 6 || true
   sleep 5
-  # 4000 QPS: Higher load
-  profile_failover_qps 4000 64 16 || true
+  # 4000 QPS: Medium load
+  profile_failover_qps 4000 50 10 || true
   sleep 5
-  # 8000 QPS: High load - more clients to stress test
-  profile_failover_qps 8000 128 32 || true
+  # 8000 QPS: High load - more clients, but may hit PgBouncer pool_size limit
+  profile_failover_qps 8000 100 20 || true
 else
   say "pgbench not available, skipping QPS profile failover tests"
 fi
