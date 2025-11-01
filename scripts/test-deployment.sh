@@ -209,10 +209,21 @@ done
 
 say "Cluster status"
 CLUSTER_JSON=""
+# Try to get cluster JSON from both nodes and merge/use the most complete one
 for ip in "${DB_NODES[@]}"; do
   out=$(curl -fsS "http://$ip:$PATRONI_API_PORT/cluster" 2>/dev/null || true)
-  if [[ -n "$out" ]]; then CLUSTER_JSON="$out"; break; fi
+  if [[ -n "$out" ]]; then
+    member_count=$(echo "$out" | jq '[.members[]] | length' 2>/dev/null || echo "0")
+    # Use the cluster JSON with more members (more complete view)
+    if [[ -z "$CLUSTER_JSON" ]] || [[ "$member_count" -gt "$(echo "$CLUSTER_JSON" | jq '[.members[]] | length' 2>/dev/null || echo "0")" ]]; then
+      CLUSTER_JSON="$out"
+    fi
+  fi
 done
+# If still no cluster JSON, try one more time
+if [[ -z "$CLUSTER_JSON" ]]; then
+  CLUSTER_JSON=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" 2>/dev/null || true)
+fi
 if [[ -n "$CLUSTER_JSON" ]]; then
   echo "$CLUSTER_JSON" | jq . >/dev/null 2>&1 || echo "$CLUSTER_JSON"
   pass "Cluster status retrieved"
@@ -226,23 +237,22 @@ if [[ "${DEBUG:-}" == "true" ]]; then
   echo "$CLUSTER_JSON" | jq '.' >&2 || echo "Cluster JSON: $CLUSTER_JSON" >&2
 fi
 
+# First try to find leader in cluster JSON
 LEADER=$(echo "$CLUSTER_JSON" | jq -r '.members[] | select(.role=="leader" or .role=="primary") | .name' 2>/dev/null || true)
 if [[ -n "$LEADER" ]] && [[ "$LEADER" != "null" ]]; then
   pass "Leader found: $LEADER"
 else
-  # Fallback: try to get leader from individual node APIs
+  # Primary approach: check individual node APIs (more reliable)
+  # This catches cases where cluster JSON view is incomplete
   for ip in "${DB_NODES[@]}"; do
     node_info=$(curl -fsS "http://$ip:$PATRONI_API_PORT/patroni" 2>/dev/null || true)
     if [[ -n "$node_info" ]]; then
       node_role=$(echo "$node_info" | jq -r '.role // ""' || true)
-      node_name=$(echo "$node_info" | jq -r '.member // .name // "'"$ip"'"' || true)
-      # Try to get name from cluster endpoint if not in patroni endpoint
-      if [[ -z "$node_name" ]] || [[ "$node_name" == "$ip" ]]; then
-        node_name=$(echo "$CLUSTER_JSON" | jq -r ".members[] | select(.host==\"$ip\" or .api_url==\"http://$ip:$PATRONI_API_PORT/patroni\") | .name" 2>/dev/null | head -1 || echo "")
-      fi
       if [[ "$node_role" == "leader" ]] || [[ "$node_role" == "primary" ]]; then
-        if [[ -z "$node_name" ]]; then
-          # Map IP to name if we can't find it
+        # Try to get name from cluster JSON first
+        node_name=$(echo "$CLUSTER_JSON" | jq -r ".members[] | select(.host==\"$ip\" or .api_url==\"http://$ip:$PATRONI_API_PORT/patroni\") | .name" 2>/dev/null | head -1 || echo "")
+        # If not found in cluster JSON, use IP-to-name mapping
+        if [[ -z "$node_name" ]] || [[ "$node_name" == "null" ]]; then
           case "$ip" in
             10.50.1.4) node_name="pgpatroni-1" ;;
             10.50.1.5) node_name="pgpatroni-2" ;;
@@ -250,13 +260,15 @@ else
           esac
         fi
         LEADER="$node_name"
-        pass "Leader found via API: $LEADER (on $ip, role: $node_role)"
+        pass "Leader found via node API: $LEADER (on $ip, role: $node_role)"
         break
       fi
     fi
   done
+  
+  # Last resort fallback
   if [[ -z "$LEADER" ]] || [[ "$LEADER" == "null" ]]; then
-    # Last resort: check cluster JSON for any member with running state
+    # Check cluster JSON for any member with running state (very last resort)
     potential_leader=$(echo "$CLUSTER_JSON" | jq -r '.members[] | select(.state=="running") | .name' 2>/dev/null | head -1 || true)
     if [[ -n "$potential_leader" ]] && [[ "$potential_leader" != "null" ]]; then
       LEADER="$potential_leader"
@@ -266,6 +278,10 @@ else
       if [[ "${DEBUG:-}" == "true" ]]; then
         echo "Cluster members:" >&2
         echo "$CLUSTER_JSON" | jq '.members[] | {name, role, state}' >&2 || true
+        echo "Node API checks:" >&2
+        for ip in "${DB_NODES[@]}"; do
+          curl -fsS "http://$ip:$PATRONI_API_PORT/patroni" | jq '{role, state}' >&2 || echo "  $ip: failed" >&2
+        done
       fi
     fi
   fi
