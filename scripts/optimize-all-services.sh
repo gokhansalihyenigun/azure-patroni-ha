@@ -100,15 +100,26 @@ ALTER SYSTEM SET log_autovacuum_min_duration = '1000';  -- Log slow autovacuum
 -- Reload configuration (most settings take effect without restart)
 SELECT pg_reload_conf();
 
--- Note: Some settings like shared_buffers require restart, but we're using ALTER SYSTEM
--- which will persist. The new values will take effect after next PostgreSQL restart.
--- Patroni will handle restart if needed when config changes.
+-- Note: Some settings like shared_buffers, max_connections require PostgreSQL restart
+-- ALTER SYSTEM persists to postgresql.auto.conf, but values take effect after restart
+-- Patroni needs to be told to restart PostgreSQL to apply postmaster-level settings
 
 -- Verify critical settings (shows current values, some may need restart to take effect)
 SELECT name, setting, unit, context FROM pg_settings 
 WHERE name IN ('shared_buffers', 'effective_cache_size', 'work_mem', 'synchronous_commit', 'synchronous_standby_names', 'max_connections', 'max_parallel_workers')
 ORDER BY name;
+
 SQL
+  
+  # After ALTER SYSTEM, we need Patroni to restart PostgreSQL for postmaster-level settings
+  # Patroni will detect postgresql.auto.conf changes and restart if needed
+  say "Waiting for Patroni to detect configuration changes..."
+  sleep 5
+  
+  # Trigger Patroni reload/restart via API
+  local patroni_api="http://${host}:8008/reload"
+  ssh_cmd "$host" "curl -fsS -X POST \"$patroni_api\" >/dev/null 2>&1 || curl -fsS -X POST \"http://${host}:8008/restart\" >/dev/null 2>&1 || true"
+  sleep 10  # Wait for PostgreSQL to restart and apply new settings
   
   if [[ $? -eq 0 ]]; then
     pass "PostgreSQL optimized on $host"
