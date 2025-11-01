@@ -540,14 +540,28 @@ test_zero_data_loss() {
   
   local leader candidate
   leader=$(echo "$cluster_json" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null | head -1)
+  # Try multiple strategies to find candidate: running replica first, then any replica
   candidate=$(echo "$cluster_json" | jq -r '.members[] | select(.role!="leader" and (.state=="running")) | .name' 2>/dev/null | head -1)
+  # If no running replica found, try any non-leader member (might be starting up)
+  if [[ -z "$candidate" ]]; then
+    candidate=$(echo "$cluster_json" | jq -r '.members[] | select(.role!="leader") | .name' 2>/dev/null | head -1)
+  fi
   
   say "   Current leader: ${leader:-unknown}"
   say "   Candidate replica: ${candidate:-unknown}"
   
-  if [[ -z "$leader" ]] || [[ -z "$candidate" ]]; then
-    fail "Zero Data Loss Test: Cannot determine leader/candidate for failover test"
-    say "   Leader: ${leader:-none} | Candidate: ${candidate:-none}"
+  if [[ -z "$leader" ]]; then
+    fail "Zero Data Loss Test: Cannot determine leader"
+    say "   Cluster state dump:"
+    echo "$cluster_json" | jq '.' 2>/dev/null || echo "$cluster_json"
+    kill $bench_pid 2>/dev/null || true
+    return 1
+  fi
+  
+  if [[ -z "$candidate" ]]; then
+    fail "Zero Data Loss Test: No replica candidate found (cluster may not be ready)"
+    say "   Cluster members:"
+    echo "$cluster_json" | jq -r '.members[] | "      - \(.name): role=\(.role), state=\(.state)"' 2>/dev/null || true
     kill $bench_pid 2>/dev/null || true
     return 1
   fi
