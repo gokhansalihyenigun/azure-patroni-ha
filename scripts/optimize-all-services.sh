@@ -56,15 +56,15 @@ ALTER SYSTEM SET maintenance_work_mem = '4GB';  -- Increase for VACUUM/REINDEX (
 ALTER SYSTEM SET max_connections = '500';  -- High concurrent connections (PgBouncer pools 600 total)
 ALTER SYSTEM SET max_worker_processes = '32';  -- Match vCPU count exactly (Standard_D32s_v6)
 ALTER SYSTEM SET max_parallel_workers_per_gather = '16';  -- Parallel query workers (50% of vCPU - Premium SSD v2 high IOPS supports this)
-ALTER SYSTEM SET max_parallel_workers = '28';  -- Max parallel workers (87.5% of vCPU - leverage Premium SSD v2 80k IOPS)
+ALTER SYSTEM SET max_parallel_workers = '30';  -- Max parallel workers (93.75% of vCPU - leverage Premium SSD v2 80k IOPS, aggressive optimization)
 ALTER SYSTEM SET max_parallel_maintenance_workers = '12';  -- Parallel maintenance (Premium SSD v2 80k IOPS can handle parallel I/O)
 
 -- WRITE PERFORMANCE: Optimize for Premium SSD v2 (80,000 IOPS, 1,200 MB/s, <1ms latency)
 -- Premium SSD v2 can handle extremely high write rates
 ALTER SYSTEM SET checkpoint_completion_target = '0.9';  -- Spread checkpoints smoothly
 ALTER SYSTEM SET wal_buffers = '128MB';  -- Large WAL buffers leverage Premium SSD v2 1,200 MB/s write throughput
-ALTER SYSTEM SET max_wal_size = '32GB';  -- Allow more WAL (Premium SSD v2 80k IOPS can handle frequent checkpoints)
-ALTER SYSTEM SET min_wal_size = '8GB';  -- Keep more WAL segments warm (512GB WAL disk available)
+ALTER SYSTEM SET max_wal_size = '48GB';  -- Increased for less frequent checkpoints (Premium SSD v2 512GB WAL disk, aggressive optimization)
+ALTER SYSTEM SET min_wal_size = '12GB';  -- Increased to keep more WAL segments warm (512GB WAL disk available, allows larger warm set)
 ALTER SYSTEM SET checkpoint_timeout = '15min';  -- Longer checkpoint (Premium SSD v2 fast enough, reduces overhead)
 ALTER SYSTEM SET wal_compression = 'on';  -- Compress WAL (32 vCPU can handle compression overhead, saves disk IOPS)
 ALTER SYSTEM SET full_page_writes = 'on';  -- Required for consistency (Premium SSD v2 <1ms latency fast enough)
@@ -141,15 +141,16 @@ optimize_patroni() {
 # Backup original config
 cp /etc/patroni/patroni.yml /etc/patroni/patroni.yml.backup.$(date +%s) 2>/dev/null || true
 
-# OPTIMAL FAILOVER SETTINGS:
-# ttl: 20s (leader lock timeout - must be > 3 * loop_wait)
-# loop_wait: 8s (cluster state check interval - faster = quicker failover detection)
-# retry_timeout: 8s (operation retry timeout)
-# These give ~24s worst-case failover detection (loop_wait * 3 + small buffer)
+# OPTIMAL FAILOVER SETTINGS (AGGRESSIVE OPTIMIZATION):
+# ttl: 18s (leader lock timeout - must be > 3 * loop_wait, reduced for faster failover)
+# loop_wait: 5s (cluster state check interval - aggressive optimization for faster detection)
+# retry_timeout: 5s (operation retry timeout - faster retries)
+# These give ~15-18s worst-case failover detection (loop_wait * 3 + small buffer)
+# More aggressive than default 8s, but Premium SSD v2 + fast etcd can handle it
 
-sed -i 's/ttl: [0-9]*/ttl: 20/' /etc/patroni/patroni.yml
-sed -i 's/loop_wait: [0-9]*/loop_wait: 8/' /etc/patroni/patroni.yml
-sed -i 's/retry_timeout: [0-9]*/retry_timeout: 8/' /etc/patroni/patroni.yml
+sed -i 's/ttl: [0-9]*/ttl: 18/' /etc/patroni/patroni.yml
+sed -i 's/loop_wait: [0-9]*/loop_wait: 5/' /etc/patroni/patroni.yml
+sed -i 's/retry_timeout: [0-9]*/retry_timeout: 5/' /etc/patroni/patroni.yml
 
 # ZERO DATA LOSS SETTINGS (already should be set, but ensure):
 sed -i 's/synchronous_mode:.*/synchronous_mode: true/' /etc/patroni/patroni.yml

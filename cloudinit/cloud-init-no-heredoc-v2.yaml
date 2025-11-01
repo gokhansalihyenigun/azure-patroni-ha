@@ -69,7 +69,7 @@ write_files:
         hosts: 10.50.1.4:2379,10.50.1.5:2379,10.50.1.7:2379
       bootstrap:
         dcs:
-          ttl: 20
+          ttl: 18
           loop_wait: 5
           retry_timeout: 5
           maximum_lag_on_failover: 1048576
