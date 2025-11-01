@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
+# Note: Using set -eo pipefail (not -euo) to avoid issues with BASH_SOURCE
+# when script is executed via pipe (curl | bash)
+# The 'u' flag would cause "unbound variable" errors for BASH_SOURCE array
 set -eo pipefail
-# Note: 'u' flag removed from set -euo pipefail to allow unbound variables
-# for BASH_SOURCE array when script is executed via pipe (curl | bash)
-# We use ${VAR:-} syntax throughout for safety
 
 # Azure Patroni HA PostgreSQL - Comprehensive Performance Optimization Script
 # This script optimizes PostgreSQL, Patroni, etcd, and PgBouncer for maximum performance
@@ -435,10 +435,10 @@ main() {
   say "  curl -fsSL https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha/main/scripts/test-deployment.sh | bash"
 }
 
-# Run if executed directly
-# Handle both direct execution and pipe execution (curl ... | bash)
-# When executed via pipe, BASH_SOURCE array may be empty, so always run main
-if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]] || [[ "${#BASH_SOURCE[@]}" -eq 0 ]]; then
-  main "$@"
-fi
+# Run main function
+# When executed via pipe (curl | bash), BASH_SOURCE may be unbound
+# Simple solution: always run main() when script is executed (not sourced)
+# BASH_SOURCE check is only needed if script might be sourced
+# Since this is an executable script, we always run main()
+main "$@"
 
