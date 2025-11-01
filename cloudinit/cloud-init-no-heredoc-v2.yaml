@@ -105,7 +105,8 @@ write_files:
         connect_address: __IP__:5432
         data_dir: /pgdata
         bin_dir: /usr/lib/postgresql/16/bin
-        parameters: {}
+        parameters:
+          max_connections: 500
         authentication:
           superuser:
             username: postgres
