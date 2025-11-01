@@ -1,21 +1,27 @@
 #!/bin/bash
 # Manual fix steps for etcd split-brain with member cleanup
 
-set -e
+set -eo pipefail
 
 ADMIN_USER="${ADMIN_USER:-azureuser}"
 ADMIN_PASS="${ADMIN_PASS:-Azure123!@#}"
 
 echo "=== Step 1: Stop services on pgpatroni-1 ==="
-sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no azureuser@10.50.1.4 \
-  "sudo systemctl stop patroni && sudo systemctl stop etcd" || true
-echo "✓ Services stopped"
+if sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+  "${ADMIN_USER}@10.50.1.4" "sudo systemctl stop patroni && sudo systemctl stop etcd" 2>&1; then
+  echo "✓ Services stopped"
+else
+  echo "⚠ Warning: Services may already be stopped"
+fi
 
 echo ""
 echo "=== Step 2: Clear etcd data on pgpatroni-1 ==="
-sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no azureuser@10.50.1.4 \
-  "sudo rm -rf /var/lib/etcd/*" || true
-echo "✓ Data cleared"
+if sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+  "${ADMIN_USER}@10.50.1.4" "sudo rm -rf /var/lib/etcd/*" 2>&1; then
+  echo "✓ Data cleared"
+else
+  echo "⚠ Warning: Data clear may have failed (continuing...)"
+fi
 
 echo ""
 echo "=== Step 3: Check and remove broken member from pgpatroni-2 cluster ==="
@@ -57,7 +63,8 @@ fi
 
 echo ""
 echo "=== Step 5: Update etcd config on pgpatroni-1 ==="
-sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no azureuser@10.50.1.4 "sudo bash" <<'EOF'
+if sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+  "${ADMIN_USER}@10.50.1.4" "sudo bash" <<'EOF'
 cp /etc/default/etcd /etc/default/etcd.backup.$(date +%s) 2>/dev/null || true
 cat > /etc/default/etcd <<'CFG'
 ETCD_NAME="pgpatroni-1"
@@ -72,6 +79,12 @@ CFG
 echo "✓ Config updated"
 cat /etc/default/etcd
 EOF
+then
+  echo "✓ Config updated successfully"
+else
+  echo "✗ Failed to update config"
+  exit 1
+fi
 
 echo ""
 echo "=== Step 6: Start etcd on pgpatroni-1 ==="
