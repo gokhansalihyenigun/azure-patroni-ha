@@ -74,15 +74,28 @@ grep -A20 "bootstrap:" /etc/patroni/patroni.yml | grep -A10 "parameters:" | grep
 systemctl restart patroni
 sleep 10
 
-# Wait for PostgreSQL to restart
-for i in {1..12}; do
-  if curl -fsS http://127.0.0.1:8008/patroni 2>/dev/null | grep -q '"state":"running"'; then
-    echo "PostgreSQL is running"
+# Wait for PostgreSQL to restart and check logs if needed
+echo "Waiting for PostgreSQL to restart..."
+for i in {1..18}; do
+  patroni_state=$(curl -fsS http://127.0.0.1:8008/patroni 2>/dev/null | grep -o '"state":"[^"]*"' | head -1 || echo "")
+  if echo "$patroni_state" | grep -q '"state":"running"'; then
+    echo "✓ PostgreSQL is running"
     break
   fi
-  echo "Waiting for PostgreSQL... ($i/12)"
+  if [[ $i -eq 12 ]]; then
+    echo "Warning: PostgreSQL taking longer than expected. Checking logs..."
+    journalctl -u patroni -n 20 --no-pager | tail -10 || true
+  fi
+  echo "Waiting for PostgreSQL... ($i/18) - State: ${patroni_state:-unknown}"
   sleep 10
 done
+
+# Final check
+patroni_state=$(curl -fsS http://127.0.0.1:8008/patroni 2>/dev/null | grep -o '"state":"[^"]*"' | head -1 || echo "")
+if ! echo "$patroni_state" | grep -q '"state":"running"'; then
+  echo "ERROR: PostgreSQL may not have restarted properly. State: ${patroni_state:-unknown}"
+  echo "Check logs: journalctl -u patroni -n 50"
+fi
 BASH
   
   if [[ $? -eq 0 ]]; then
