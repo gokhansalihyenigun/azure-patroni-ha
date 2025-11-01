@@ -522,17 +522,28 @@ test_zero_data_loss() {
   
   # Trigger failover during write workload
   say "Triggering failover during write workload..."
-  # Refresh CLUSTER_JSON if not available (function scope)
-  local cluster_json="$CLUSTER_JSON"
+  # Always refresh CLUSTER_JSON to get current state (cluster may have changed)
+  local cluster_json=""
+  for ip in "${DB_NODES[@]}"; do
+    local out=$(curl -fsS "http://$ip:$PATRONI_API_PORT/cluster" 2>/dev/null || true)
+    if [[ -n "$out" ]]; then 
+      cluster_json="$out"
+      break
+    fi
+  done
+  
   if [[ -z "$cluster_json" ]]; then
-    for ip in "${DB_NODES[@]}"; do
-      local out=$(curl -fsS "http://$ip:$PATRONI_API_PORT/cluster" 2>/dev/null || true)
-      if [[ -n "$out" ]]; then cluster_json="$out"; break; fi
-    done
+    fail "Zero Data Loss Test: Cannot retrieve cluster state"
+    kill $bench_pid 2>/dev/null || true
+    return 1
   fi
+  
   local leader candidate
   leader=$(echo "$cluster_json" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null | head -1)
   candidate=$(echo "$cluster_json" | jq -r '.members[] | select(.role!="leader" and (.state=="running")) | .name' 2>/dev/null | head -1)
+  
+  say "   Current leader: ${leader:-unknown}"
+  say "   Candidate replica: ${candidate:-unknown}"
   
   if [[ -z "$leader" ]] || [[ -z "$candidate" ]]; then
     fail "Zero Data Loss Test: Cannot determine leader/candidate for failover test"
