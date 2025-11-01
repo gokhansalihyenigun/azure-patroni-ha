@@ -17,7 +17,8 @@ ssh_cmd() {
   sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no \
     -o ConnectTimeout=10 \
     -o LogLevel=ERROR \
-    "${ADMIN_USER}@${host}" "$@" 2>/dev/null || return 1
+    -o UserKnownHostsFile=/dev/null \
+    "${ADMIN_USER}@${host}" "$@" || return 1
 }
 
 say "=== Fixing etcd Cluster Split-Brain ==="
@@ -88,14 +89,19 @@ fi
 
 # Get the member ID that will be added (from the node that will rejoin)
 say "Getting current member info from rejoin node..."
-rejoin_node_name=$(ssh_cmd "$rejoin_node_ip" "grep '^ETCD_NAME=' /etc/default/etcd | cut -d'=' -f2 | tr -d '\"' || echo ''")
-if [[ -z "$rejoin_node_name" ]]; then
-  case "$rejoin_node_ip" in
-    10.50.1.4) rejoin_node_name="pgpatroni-1" ;;
-    10.50.1.5) rejoin_node_name="pgpatroni-2" ;;
-    *) rejoin_node_name="node-$rejoin_node_ip" ;;
-  esac
-fi
+say "  (Determining node name...)"
+case "$rejoin_node_ip" in
+  10.50.1.4) rejoin_node_name="pgpatroni-1" ;;
+  10.50.1.5) rejoin_node_name="pgpatroni-2" ;;
+  *) 
+    # Try to get from etcd config, fallback to IP-based name
+    rejoin_node_name=$(ssh_cmd "$rejoin_node_ip" "grep '^ETCD_NAME=' /etc/default/etcd 2>/dev/null | cut -d'=' -f2 | tr -d '\"\\' || echo ''" 2>&1 | tail -1)
+    if [[ -z "$rejoin_node_name" ]] || [[ "$rejoin_node_name" == "null" ]]; then
+      rejoin_node_name="node-$rejoin_node_ip"
+    fi
+    ;;
+esac
+say "  Rejoin node name: $rejoin_node_name"
 
 rejoin_node_peer_url="http://$rejoin_node_ip:2380"
 say "Rejoin node: $rejoin_node_name ($rejoin_node_ip)"
