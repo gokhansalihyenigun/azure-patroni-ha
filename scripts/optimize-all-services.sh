@@ -433,7 +433,11 @@ main() {
 }
 
 # Run if executed directly
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+# Handle both direct execution and pipe execution (curl ... | bash)
+if [[ -n "${BASH_SOURCE[0]:-}" ]] && [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  main "$@"
+elif [[ -z "${BASH_SOURCE[0]:-}" ]]; then
+  # Executed via pipe (curl ... | bash), BASH_SOURCE may be unbound
   main "$@"
 fi
 
