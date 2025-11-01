@@ -106,7 +106,7 @@ SELECT pg_reload_conf();
 
 -- Verify critical settings (shows current values, some may need restart to take effect)
 SELECT name, setting, unit, context FROM pg_settings 
-WHERE name IN ('shared_buffers', 'effective_cache_size', 'work_mem', 'synchronous_commit', 'synchronous_standby_names', 'max_connections', 'max_parallel_workers')
+WHERE name IN ('shared_buffers', 'effective_cache_size', 'work_mem', 'synchronous_commit', 'synchronous_standby_names', 'max_connections', 'max_parallel_workers', 'max_wal_size', 'min_wal_size')
 ORDER BY name;
 
 SQL
@@ -436,10 +436,10 @@ main() {
   say "Optimization complete!"
   say ""
   say "Summary of optimizations applied:"
-  say "  ✓ PostgreSQL: Increased shared_buffers, work_mem, max_connections, parallel workers"
-  say "  ✓ Patroni: Optimized TTL, loop_wait, retry_timeout for faster failover"
+  say "  ✓ PostgreSQL: Increased shared_buffers, work_mem, max_connections, parallel workers (30), max_wal_size (48GB)"
+  say "  ✓ Patroni: Aggressive optimization - loop_wait=5s, ttl=18s for fastest failover (~15s worst case)"
   say "  ✓ etcd: Increased quotas and optimized heartbeat/election timeouts"
-  say "  ✓ PgBouncer: Increased pool_size to 400, max_client_conn to 4000"
+  say "  ✓ PgBouncer: Increased pool_size to 600, max_client_conn to 6000"
   say "  ✓ System: Optimized kernel parameters, file limits, memory settings"
   say ""
   say "You can now run the performance test:"
