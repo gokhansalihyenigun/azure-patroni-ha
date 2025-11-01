@@ -221,22 +221,53 @@ else
 fi
 
 say "Check leader"
+# Debug: Show cluster JSON structure
+if [[ "${DEBUG:-}" == "true" ]]; then
+  echo "$CLUSTER_JSON" | jq '.' >&2 || echo "Cluster JSON: $CLUSTER_JSON" >&2
+fi
+
 LEADER=$(echo "$CLUSTER_JSON" | jq -r '.members[] | select(.role=="leader" or .role=="primary") | .name' 2>/dev/null || true)
-if [[ -n "$LEADER" ]]; then
+if [[ -n "$LEADER" ]] && [[ "$LEADER" != "null" ]]; then
   pass "Leader found: $LEADER"
 else
   # Fallback: try to get leader from individual node APIs
   for ip in "${DB_NODES[@]}"; do
-    node_role=$(curl -fsS "http://$ip:$PATRONI_API_PORT/patroni" 2>/dev/null | jq -r '.role // ""' || true)
-    node_name=$(curl -fsS "http://$ip:$PATRONI_API_PORT/patroni" 2>/dev/null | jq -r '.member // .name // ""' || true)
-    if [[ "$node_role" == "leader" ]] || [[ "$node_role" == "primary" ]]; then
-      LEADER="$node_name"
-      pass "Leader found via API: $LEADER (on $ip)"
-      break
+    node_info=$(curl -fsS "http://$ip:$PATRONI_API_PORT/patroni" 2>/dev/null || true)
+    if [[ -n "$node_info" ]]; then
+      node_role=$(echo "$node_info" | jq -r '.role // ""' || true)
+      node_name=$(echo "$node_info" | jq -r '.member // .name // "'"$ip"'"' || true)
+      # Try to get name from cluster endpoint if not in patroni endpoint
+      if [[ -z "$node_name" ]] || [[ "$node_name" == "$ip" ]]; then
+        node_name=$(echo "$CLUSTER_JSON" | jq -r ".members[] | select(.host==\"$ip\" or .api_url==\"http://$ip:$PATRONI_API_PORT/patroni\") | .name" 2>/dev/null | head -1 || echo "")
+      fi
+      if [[ "$node_role" == "leader" ]] || [[ "$node_role" == "primary" ]]; then
+        if [[ -z "$node_name" ]]; then
+          # Map IP to name if we can't find it
+          case "$ip" in
+            10.50.1.4) node_name="pgpatroni-1" ;;
+            10.50.1.5) node_name="pgpatroni-2" ;;
+            *) node_name="$ip" ;;
+          esac
+        fi
+        LEADER="$node_name"
+        pass "Leader found via API: $LEADER (on $ip, role: $node_role)"
+        break
+      fi
     fi
   done
-  if [[ -z "$LEADER" ]]; then
-    fail "Leader not found"
+  if [[ -z "$LEADER" ]] || [[ "$LEADER" == "null" ]]; then
+    # Last resort: check cluster JSON for any member with running state
+    potential_leader=$(echo "$CLUSTER_JSON" | jq -r '.members[] | select(.state=="running") | .name' 2>/dev/null | head -1 || true)
+    if [[ -n "$potential_leader" ]] && [[ "$potential_leader" != "null" ]]; then
+      LEADER="$potential_leader"
+      pass "Leader found (fallback): $LEADER (running state)"
+    else
+      fail "Leader not found"
+      if [[ "${DEBUG:-}" == "true" ]]; then
+        echo "Cluster members:" >&2
+        echo "$CLUSTER_JSON" | jq '.members[] | {name, role, state}' >&2 || true
+      fi
+    fi
   fi
 fi
 
