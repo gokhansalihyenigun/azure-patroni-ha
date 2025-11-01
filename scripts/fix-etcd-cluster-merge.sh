@@ -27,9 +27,11 @@ PRIMARY_NODE="10.50.1.5"
 REPLICA_NODE="10.50.1.4"
 
 say "Step 1: Identifying primary node (to keep existing cluster)..."
-primary_role=$(ssh_cmd "$PRIMARY_NODE" "curl -fsS http://127.0.0.1:8008/patroni 2>/dev/null | jq -r '.role // \"unknown\"' || echo 'unknown'")
+primary_role=$(ssh_cmd "$PRIMARY_NODE" "timeout 5 curl -fsS http://127.0.0.1:8008/patroni 2>/dev/null | jq -r '.role // \"unknown\"' 2>/dev/null || echo 'unknown'" || echo "unknown")
 if [[ "$primary_role" == "primary" ]] || [[ "$primary_role" == "leader" ]]; then
   say "  ✓ Primary identified: $PRIMARY_NODE (role: $primary_role)"
+elif [[ "$primary_role" == "unknown" ]]; then
+  say "  Warning: Could not determine role, but proceeding (assuming $PRIMARY_NODE is primary)"
 else
   say "  Warning: $PRIMARY_NODE role is $primary_role, but proceeding anyway"
 fi
