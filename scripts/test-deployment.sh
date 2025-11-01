@@ -17,19 +17,36 @@ PGBOUNCER_USER="pgbouncer"
 PGBOUNCER_PASS="StrongPass123"
 
 # Use PgBouncer for load tests? (true = realistic scenario, false = direct DB)
-# Set USE_PGBOUNCER=true to test through PgBouncer connection pooler
-# Note: When using curl | bash, pass as: curl ... | USE_PGBOUNCER=true bash
-# Or set it before: export USE_PGBOUNCER=true; curl ... | bash
+# 
+# IMPORTANT: When using curl | bash, you MUST use export:
+#   export USE_PGBOUNCER=true; curl ... | bash
+# 
+# Alternative methods (both work):
+#   curl ... | bash -c 'USE_PGBOUNCER=true bash'
+#   bash <(curl ...) USE_PGBOUNCER=true
+
 USE_PGBOUNCER="${USE_PGBOUNCER:-false}"
 
-# Also check if script was invoked with USE_PGBOUNCER in command line args
-# This handles: USE_PGBOUNCER=true bash <(curl ...)
+# Method 1: Check command line args (handles: bash script.sh USE_PGBOUNCER=true or bash <(curl) USE_PGBOUNCER=true)
 for arg in "$@"; do
   if [[ "$arg" =~ ^USE_PGBOUNCER= ]]; then
     eval "$arg"
     break
   fi
 done
+
+# Method 2: Check environment variable (most reliable for: export USE_PGBOUNCER=true; curl ... | bash)
+USE_PGBOUNCER="${USE_PGBOUNCER:-false}"
+
+# Method 3: Try to detect from parent process command line (for: USE_PGBOUNCER=true curl ... | bash)
+# Note: This may not always work due to shell pipe behavior, but worth trying
+if [[ "${USE_PGBOUNCER}" == "false" ]] && command -v ps >/dev/null 2>&1; then
+  # Check parent process (the shell running curl | bash)
+  local parent_cmd=$(ps -o cmd= -p $PPID 2>/dev/null || echo "")
+  if echo "$parent_cmd" | grep -qE 'USE_PGBOUNCER=(true|yes|1)'; then
+    USE_PGBOUNCER="true"
+  fi
+fi
 
 # Determine which endpoint to use for load tests
 if [[ "$USE_PGBOUNCER" == "true" ]] || [[ "$USE_PGBOUNCER" == "yes" ]] || [[ "$USE_PGBOUNCER" == "1" ]]; then
