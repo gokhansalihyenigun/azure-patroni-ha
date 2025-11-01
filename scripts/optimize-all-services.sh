@@ -61,16 +61,22 @@ ALTER SYSTEM SET max_wal_size = '32GB';  -- Allow more WAL before checkpoint
 ALTER SYSTEM SET min_wal_size = '8GB';  -- Keep more WAL segments
 ALTER SYSTEM SET checkpoint_timeout = '15min';  -- Longer checkpoint interval for high load
 
--- I/O PERFORMANCE: Optimize for Premium SSD v2 (low latency, high IOPS)
-ALTER SYSTEM SET random_page_cost = '1.1';  -- SSDs are fast
-ALTER SYSTEM SET effective_io_concurrency = '200';  -- High for NVMe SSDs
-ALTER SYSTEM SET seq_page_cost = '1.0';  -- Sequential reads are fast on SSD
+-- I/O PERFORMANCE: Optimize for Premium SSD v2 (Azure Premium SSD v2)
+-- Premium SSD v2 specs: Up to 80,000 IOPS, 1,200 MB/s throughput, <1ms latency
+-- For Standard_D32s_v6: Can leverage full disk performance
+ALTER SYSTEM SET random_page_cost = '1.1';  -- Premium SSD v2 is extremely fast
+ALTER SYSTEM SET effective_io_concurrency = '256';  -- Premium SSD v2 can handle high concurrency (up to 256)
+ALTER SYSTEM SET seq_page_cost = '1.0';  -- Sequential reads are very fast on Premium SSD v2
+ALTER SYSTEM SET max_parallel_maintenance_workers = '8';  -- Leverage parallel maintenance on fast disks
 
 -- REPLICATION: Optimize for fast sync replication (zero data loss)
+-- Premium SSD v2 WAL disk (512GB) can handle high replication throughput
 ALTER SYSTEM SET wal_level = 'replica';  -- Sufficient for streaming replication
-ALTER SYSTEM SET max_wal_senders = '20';  -- Support multiple replicas
-ALTER SYSTEM SET max_replication_slots = '20';
-ALTER SYSTEM SET wal_keep_size = '4GB';  -- Keep WAL segments for replication catch-up
+ALTER SYSTEM SET max_wal_senders = '20';  -- Support multiple replicas (can be increased if needed)
+ALTER SYSTEM SET max_replication_slots = '20';  -- Sufficient for replication slots
+ALTER SYSTEM SET wal_keep_size = '8GB';  -- Keep more WAL segments (Premium SSD v2 has 512GB, can afford it)
+ALTER SYSTEM SET wal_receiver_timeout = '60s';  -- Longer timeout for high-latency networks
+ALTER SYSTEM SET wal_receiver_status_interval = '10s';  -- Frequent status updates for fast failover
 
 -- QUERY PERFORMANCE
 ALTER SYSTEM SET default_statistics_target = '100';
@@ -233,12 +239,13 @@ optimize_pgbouncer() {
 # Backup original config
 cp /etc/pgbouncer/pgbouncer.ini /etc/pgbouncer/pgbouncer.ini.backup.$(date +%s) 2>/dev/null || true
 
-# POOL SIZE: 500 connections (supports high QPS - 15k+ queries/sec)
-# Larger pool = more concurrent queries = higher QPS
-sed -i 's/^default_pool_size = .*/default_pool_size = 500/' /etc/pgbouncer/pgbouncer.ini
+# POOL SIZE: 600 connections (Standard_D16s_v6 has 16 vCPU, 64GB RAM, high network bandwidth)
+# Standard_D16s_v6: 16 vCPU, up to 16,000 Mbps network - can handle high connection count
+# Larger pool = more concurrent queries = higher QPS (target 15k+)
+sed -i 's/^default_pool_size = .*/default_pool_size = 600/' /etc/pgbouncer/pgbouncer.ini
 
-# CLIENT CONNECTIONS: 5000 (high for many app servers)
-sed -i 's/^max_client_conn = .*/max_client_conn = 5000/' /etc/pgbouncer/pgbouncer.ini
+# CLIENT CONNECTIONS: 6000 (Standard_D16s_v6 can handle high concurrent connections)
+sed -i 's/^max_client_conn = .*/max_client_conn = 6000/' /etc/pgbouncer/pgbouncer.ini
 
 # MIN POOL: 100 (keep warm connections ready)
 sed -i 's/^min_pool_size = .*/min_pool_size = 100/' /etc/pgbouncer/pgbouncer.ini
@@ -253,10 +260,11 @@ if ! grep -q "^reserve_pool_timeout" /etc/pgbouncer/pgbouncer.ini; then
 fi
 
 # MAX DB CONNECTIONS: Match pool_size (PgBouncer -> PostgreSQL)
+# Standard_D32s_v6 PostgreSQL: 500 max_connections, pool_size 600 is within limit
 if ! grep -q "^max_db_connections" /etc/pgbouncer/pgbouncer.ini; then
-  echo "max_db_connections = 500" >> /etc/pgbouncer/pgbouncer.ini
+  echo "max_db_connections = 600" >> /etc/pgbouncer/pgbouncer.ini
 else
-  sed -i 's/^max_db_connections = .*/max_db_connections = 500/' /etc/pgbouncer/pgbouncer.ini
+  sed -i 's/^max_db_connections = .*/max_db_connections = 600/' /etc/pgbouncer/pgbouncer.ini
 fi
 
 # IDLE TIMEOUT: Shorter for faster connection recycling (high throughput)
