@@ -18,10 +18,21 @@ PGBOUNCER_PASS="StrongPass123"
 
 # Use PgBouncer for load tests? (true = realistic scenario, false = direct DB)
 # Set USE_PGBOUNCER=true to test through PgBouncer connection pooler
+# Note: When using curl | bash, pass as: curl ... | USE_PGBOUNCER=true bash
+# Or set it before: export USE_PGBOUNCER=true; curl ... | bash
 USE_PGBOUNCER="${USE_PGBOUNCER:-false}"
 
+# Also check if script was invoked with USE_PGBOUNCER in command line args
+# This handles: USE_PGBOUNCER=true bash <(curl ...)
+for arg in "$@"; do
+  if [[ "$arg" =~ ^USE_PGBOUNCER= ]]; then
+    eval "$arg"
+    break
+  fi
+done
+
 # Determine which endpoint to use for load tests
-if [[ "$USE_PGBOUNCER" == "true" ]] || [[ "$USE_PGBOUNCER" == "yes" ]]; then
+if [[ "$USE_PGBOUNCER" == "true" ]] || [[ "$USE_PGBOUNCER" == "yes" ]] || [[ "$USE_PGBOUNCER" == "1" ]]; then
   LOAD_TEST_HOST="$PGB_ILB_IP"
   LOAD_TEST_PORT="$PGB_PORT"
   LOAD_TEST_NOTE="via PgBouncer"
@@ -155,6 +166,15 @@ in_backend_pool_subnet() {
 }
 
 say "Azure Patroni HA PostgreSQL Test Suite"
+
+# Show load test configuration
+if [[ "$USE_PGBOUNCER" == "true" ]] || [[ "$USE_PGBOUNCER" == "yes" ]] || [[ "$USE_PGBOUNCER" == "1" ]]; then
+  say "Load tests will use PgBouncer (realistic scenario: ${LOAD_TEST_HOST}:${LOAD_TEST_PORT})"
+else
+  say "Load tests will use direct DB connection (${LOAD_TEST_HOST}:${LOAD_TEST_PORT})"
+  say "   To test via PgBouncer, run: USE_PGBOUNCER=true bash <(curl ...)"
+  say "   Or: export USE_PGBOUNCER=true; curl ... | bash"
+fi
 
 ensure_jq || say "jq not present; JSON outputs will be raw."
 
