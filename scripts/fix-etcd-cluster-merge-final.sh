@@ -88,36 +88,39 @@ if [[ -z "$primary_members" ]]; then
 fi
 
 # Get the member ID that will be added (from the node that will rejoin)
-say "Getting current member info from rejoin node..."
-say "  (Determining node name...)"
+say "Determining rejoin node name..."
 case "$rejoin_node_ip" in
   10.50.1.4) rejoin_node_name="pgpatroni-1" ;;
   10.50.1.5) rejoin_node_name="pgpatroni-2" ;;
-  *) 
-    # Try to get from etcd config, fallback to IP-based name
-    rejoin_node_name=$(ssh_cmd "$rejoin_node_ip" "grep '^ETCD_NAME=' /etc/default/etcd 2>/dev/null | cut -d'=' -f2 | tr -d '\"\\' || echo ''" 2>&1 | tail -1)
-    if [[ -z "$rejoin_node_name" ]] || [[ "$rejoin_node_name" == "null" ]]; then
-      rejoin_node_name="node-$rejoin_node_ip"
-    fi
-    ;;
+  *) rejoin_node_name="node-$rejoin_node_ip" ;;
 esac
 say "  Rejoin node name: $rejoin_node_name"
 
 rejoin_node_peer_url="http://$rejoin_node_ip:2380"
-say "Rejoin node: $rejoin_node_name ($rejoin_node_ip)"
-say "Peer URL: $rejoin_node_peer_url"
+say "  Peer URL: $rejoin_node_peer_url"
 say ""
 
 # Step 4: Stop Patroni and etcd on the rejoin node
 say "Stopping services on rejoin node ($rejoin_node_ip)..."
-ssh_cmd "$rejoin_node_ip" "sudo systemctl stop patroni || true"
-ssh_cmd "$rejoin_node_ip" "sudo systemctl stop etcd || true"
+if ssh_cmd "$rejoin_node_ip" "sudo systemctl stop patroni 2>&1 || true"; then
+  say "  Patroni stopped"
+else
+  say "  Warning: Patroni stop may have failed (continuing...)"
+fi
+if ssh_cmd "$rejoin_node_ip" "sudo systemctl stop etcd 2>&1 || true"; then
+  say "  etcd stopped"
+else
+  say "  Warning: etcd stop may have failed (continuing...)"
+fi
 sleep 3
 
 # Step 5: Clear etcd data on rejoin node
 say "Clearing etcd data on rejoin node..."
-ssh_cmd "$rejoin_node_ip" "sudo rm -rf /var/lib/etcd/* || true"
-pass "etcd data cleared"
+if ssh_cmd "$rejoin_node_ip" "sudo rm -rf /var/lib/etcd/* 2>&1 || true"; then
+  pass "etcd data cleared"
+else
+  say "  Warning: etcd data clear may have failed (continuing...)"
+fi
 
 # Step 6: Add member to primary cluster (from primary node)
 say "Adding $rejoin_node_name to primary cluster from $primary_cluster_ip..."
@@ -141,45 +144,53 @@ fi
 say "Updating etcd configuration on rejoin node..."
 say "  Creating new etcd config..."
 
+# Create etcd config content
 if [[ "$rejoin_node_ip" == "10.50.1.4" ]]; then
-  ssh_cmd "$rejoin_node_ip" "sudo bash -c '
-cp /etc/default/etcd /etc/default/etcd.backup.\$(date +%s) 2>/dev/null || true
-cat > /etc/default/etcd <<\"EOF\"
-ETCD_NAME=\"pgpatroni-1\"
+  etcd_config_content="ETCD_NAME=\"pgpatroni-1\"
 ETCD_INITIAL_CLUSTER_TOKEN=\"pg-ha-token\"
 ETCD_INITIAL_CLUSTER=\"pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380\"
 ETCD_INITIAL_CLUSTER_STATE=\"existing\"
 ETCD_INITIAL_ADVERTISE_PEER_URLS=\"http://10.50.1.4:2380\"
 ETCD_ADVERTISE_CLIENT_URLS=\"http://10.50.1.4:2379\"
 ETCD_LISTEN_PEER_URLS=\"http://10.50.1.4:2380\"
-ETCD_LISTEN_CLIENT_URLS=\"http://127.0.0.1:2379,http://10.50.1.4:2379\"
-EOF
-echo \"Updated /etc/default/etcd:\"
-cat /etc/default/etcd
-'"
+ETCD_LISTEN_CLIENT_URLS=\"http://127.0.0.1:2379,http://10.50.1.4:2379\""
 else
-  ssh_cmd "$rejoin_node_ip" "sudo bash -c '
-cp /etc/default/etcd /etc/default/etcd.backup.\$(date +%s) 2>/dev/null || true
-cat > /etc/default/etcd <<\"EOF\"
-ETCD_NAME=\"pgpatroni-2\"
+  etcd_config_content="ETCD_NAME=\"pgpatroni-2\"
 ETCD_INITIAL_CLUSTER_TOKEN=\"pg-ha-token\"
 ETCD_INITIAL_CLUSTER=\"pgpatroni-1=http://10.50.1.4:2380,pgpatroni-2=http://10.50.1.5:2380\"
 ETCD_INITIAL_CLUSTER_STATE=\"existing\"
 ETCD_INITIAL_ADVERTISE_PEER_URLS=\"http://10.50.1.5:2380\"
 ETCD_ADVERTISE_CLIENT_URLS=\"http://10.50.1.5:2379\"
 ETCD_LISTEN_PEER_URLS=\"http://10.50.1.5:2380\"
-ETCD_LISTEN_CLIENT_URLS=\"http://127.0.0.1:2379,http://10.50.1.5:2379\"
-EOF
-echo \"Updated /etc/default/etcd:\"
-cat /etc/default/etcd
-'"
+ETCD_LISTEN_CLIENT_URLS=\"http://127.0.0.1:2379,http://10.50.1.5:2379\""
 fi
 
-if [[ $? -eq 0 ]]; then
+say "  Writing config via SSH..."
+if echo "$etcd_config_content" | ssh_cmd "$rejoin_node_ip" "sudo tee /etc/default/etcd.backup.\$(date +%s) > /dev/null && sudo cp /etc/default/etcd /etc/default/etcd.backup.\$(date +%s).old 2>/dev/null || true && echo '$etcd_config_content' | sudo tee /etc/default/etcd > /dev/null && echo 'Config written successfully'"; then
   pass "etcd configuration updated"
+  ssh_cmd "$rejoin_node_ip" "cat /etc/default/etcd" | head -10 || true
 else
   fail "Failed to update etcd configuration"
-  exit 1
+  say "Attempting alternative method..."
+  # Alternative: Use sshpass with here-document
+  sshpass -p "$ADMIN_PASS" ssh -o StrictHostKeyChecking=no \
+    -o ConnectTimeout=10 \
+    -o LogLevel=ERROR \
+    -o UserKnownHostsFile=/dev/null \
+    "${ADMIN_USER}@${rejoin_node_ip}" "sudo bash" <<EOF
+cp /etc/default/etcd /etc/default/etcd.backup.\$(date +%s) 2>/dev/null || true
+cat > /etc/default/etcd <<'CFGEOF'
+$etcd_config_content
+CFGEOF
+echo "Config updated"
+cat /etc/default/etcd
+EOF
+  if [[ $? -eq 0 ]]; then
+    pass "etcd configuration updated (alternative method)"
+  else
+    fail "All methods failed to update etcd configuration"
+    exit 1
+  fi
 fi
 
 # Step 8: Start etcd on rejoin node
