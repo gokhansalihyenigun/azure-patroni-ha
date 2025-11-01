@@ -37,15 +37,16 @@ optimize_postgresql() {
 ALTER SYSTEM SET synchronous_commit = 'on';  -- Required for zero data loss
 ALTER SYSTEM SET synchronous_standby_names = 'ANY 1';  -- Sync replication with 1 standby
 
--- MEMORY: Optimized for 128GB RAM (Standard_D32s_v6)
--- shared_buffers = 25% of RAM (industry best practice)
-ALTER SYSTEM SET shared_buffers = '32GB';
--- effective_cache_size = 75% of RAM (accounts for OS cache)
-ALTER SYSTEM SET effective_cache_size = '96GB';
--- work_mem: Calculate as (shared_buffers - maintenance) / max_connections = safe value
--- With 32GB shared_buffers and 500 connections: (32GB-2GB)/500 = ~60MB, use 128MB for safety
-ALTER SYSTEM SET work_mem = '128MB';
-ALTER SYSTEM SET maintenance_work_mem = '2GB';
+-- MEMORY: Optimized for Standard_D32s_v6 (32 vCPU, 128GB RAM)
+-- Premium SSD v2: Fast disk means we can use more RAM for caching (less disk I/O needed)
+-- shared_buffers = 25% of RAM (industry best practice for PostgreSQL)
+ALTER SYSTEM SET shared_buffers = '32GB';  -- 25% of 128GB (Standard_D32s_v6)
+-- effective_cache_size = 75% of RAM (OS cache + shared_buffers - PostgreSQL query planner)
+ALTER SYSTEM SET effective_cache_size = '96GB';  -- 75% of 128GB
+-- work_mem: Safe calculation: (shared_buffers - maintenance) / max_connections
+-- (32GB - 2GB) / 500 = ~60MB per connection, but Premium SSD v2 allows higher (less disk spill)
+ALTER SYSTEM SET work_mem = '256MB';  -- Higher for complex queries (Premium SSD v2 reduces disk I/O, can afford more)
+ALTER SYSTEM SET maintenance_work_mem = '4GB';  -- Increase for VACUUM/REINDEX (32 vCPU + Premium SSD v2 can handle larger operations)
 
 -- CONNECTIONS: Scale for high load
 ALTER SYSTEM SET max_connections = '500';
