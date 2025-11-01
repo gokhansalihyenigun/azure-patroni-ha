@@ -23,18 +23,33 @@ ssh_cmd() {
 say "Finding cluster leader..."
 LEADER_IP=""
 for host in "${DB_NODES[@]}"; do
-  leader_check=$(ssh_cmd "$host" "curl -fsS http://127.0.0.1:8008/patroni 2>/dev/null | jq -r '.role' || echo ''")
-  if [[ "$leader_check" == "leader" ]]; then
-    LEADER_IP="$host"
+  say "Checking $host..."
+  leader_check=$(ssh_cmd "$host" "curl -fsS http://127.0.0.1:8008/patroni 2>/dev/null | jq -r '.role' 2>/dev/null || curl -fsS http://127.0.0.1:8008/cluster 2>/dev/null | jq -r '.members[] | select(.role==\"leader\") | .host' 2>/dev/null || echo ''")
+  if [[ "$leader_check" == "leader" ]] || [[ -n "$leader_check" ]] && [[ "$leader_check" =~ ^10\. ]]; then
+    if [[ "$leader_check" =~ ^10\. ]]; then
+      LEADER_IP="$leader_check"
+    else
+      LEADER_IP="$host"
+    fi
     say "Leader found: $LEADER_IP"
     break
   fi
 done
 
 if [[ -z "$LEADER_IP" ]]; then
-  say "No leader found, trying any node..."
+  say "No leader found via API, trying cluster endpoint..."
+  cluster_info=$(ssh_cmd "${DB_NODES[0]}" "curl -fsS http://127.0.0.1:8008/cluster 2>/dev/null" || echo "")
+  if [[ -n "$cluster_info" ]]; then
+    LEADER_IP=$(echo "$cluster_info" | jq -r '.members[] | select(.role=="leader") | .host' 2>/dev/null || echo "")
+  fi
+fi
+
+if [[ -z "$LEADER_IP" ]]; then
+  say "Could not determine leader, using first node as fallback..."
   LEADER_IP="${DB_NODES[0]}"
 fi
+
+say "Using leader: $LEADER_IP"
 
 # Get current cluster config
 say "Getting current cluster configuration..."
