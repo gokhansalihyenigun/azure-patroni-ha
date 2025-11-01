@@ -36,29 +36,61 @@ import yaml
 with open('/etc/patroni/patroni.yml', 'r') as f:
     config = yaml.safe_load(f)
 
+# Add to postgresql.parameters (runtime)
 if 'postgresql' not in config:
     config['postgresql'] = {}
 if 'parameters' not in config['postgresql']:
     config['postgresql']['parameters'] = {}
-
 config['postgresql']['parameters']['max_connections'] = 500
+
+# Also add to bootstrap.dcs.postgresql.parameters (if exists)
+if 'bootstrap' in config and 'dcs' in config['bootstrap']:
+    if 'postgresql' not in config['bootstrap']['dcs']:
+        config['bootstrap']['dcs']['postgresql'] = {}
+    if 'parameters' not in config['bootstrap']['dcs']['postgresql']:
+        config['bootstrap']['dcs']['postgresql']['parameters'] = {}
+    config['bootstrap']['dcs']['postgresql']['parameters']['max_connections'] = 500
 
 with open('/etc/patroni/patroni.yml', 'w') as f:
     yaml.dump(config, f, default_flow_style=False, sort_keys=False)
 
-print("✓ Added max_connections: 500")
+print("✓ Added max_connections: 500 (both runtime and bootstrap)")
 PYTHON
   else
     say "✓ max_connections found in config: $max_conn_in_config"
+    # Still ensure it's in bootstrap too
+    ssh_cmd "$host" "sudo python3" <<'PYTHON'
+import yaml
+
+with open('/etc/patroni/patroni.yml', 'r') as f:
+    config = yaml.safe_load(f)
+
+if 'bootstrap' in config and 'dcs' in config['bootstrap']:
+    if 'postgresql' not in config['bootstrap']['dcs']:
+        config['bootstrap']['dcs']['postgresql'] = {}
+    if 'parameters' not in config['bootstrap']['dcs']['postgresql']:
+        config['bootstrap']['dcs']['postgresql']['parameters'] = {}
+    config['bootstrap']['dcs']['postgresql']['parameters']['max_connections'] = 500
+    
+    with open('/etc/patroni/patroni.yml', 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    print("✓ Ensured max_connections in bootstrap section")
+PYTHON
   fi
   
   # Show config
   say "Patroni config (postgresql.parameters):"
   ssh_cmd "$host" "sudo grep -A10 'postgresql:' /etc/patroni/patroni.yml | grep -A10 'parameters:' | head -15" || true
   
-  # Restart PostgreSQL via Patroni API to apply config changes
+  # CRITICAL: Restart Patroni service itself (not just PostgreSQL) to reload config
+  say "Restarting Patroni service to reload config..."
+  ssh_cmd "$host" "sudo systemctl restart patroni"
+  say "Waiting 15 seconds for Patroni to start..."
+  sleep 15
+  
+  # Then restart PostgreSQL via Patroni API
   say "Restarting PostgreSQL via Patroni API..."
-  ssh_cmd "$host" "curl -fsS -X POST 'http://127.0.0.1:8008/restart' >/dev/null 2>&1 || curl -fsS -X POST 'http://127.0.0.1:8008/reload' >/dev/null 2>&1 || true"
+  ssh_cmd "$host" "curl -fsS -X POST 'http://127.0.0.1:8008/restart' >/dev/null 2>&1 || true"
   
   say "Waiting 60 seconds for PostgreSQL restart..."
   sleep 60
