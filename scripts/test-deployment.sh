@@ -689,23 +689,29 @@ test_zero_data_loss() {
   
   # Count total transactions attempted - pgbench write workload output format
   local total_tx=""
-  # Strategy 1: Look for "number of transactions actually processed"
-  total_tx=$(grep -iE "number of transactions.*actually processed|transactions.*actually processed" "$log" | \
-    grep -oE '[0-9]+' | head -1)
-  # Strategy 2: Look for "number of transactions"
-  if [[ -z "$total_tx" ]]; then
-    total_tx=$(grep -iE "^number of transactions" "$log" | grep -oE '[0-9]+' | head -1)
+  # Strategy 1: Look for "number of transactions actually processed: X"
+  total_tx=$(grep -iE "number of transactions.*actually processed" "$log" | \
+    sed 's/.*actually processed[^0-9]*\([0-9]\+\).*/\1/' | head -1)
+  # Strategy 2: Look for "number of transactions = X" (without "actually processed")
+  if [[ -z "$total_tx" ]] || [[ "$total_tx" == "0" ]]; then
+    total_tx=$(grep -iE "^number of transactions[^a-z]" "$log" | \
+      sed 's/.*[=:]\s*\([0-9]\+\).*/\1/' | head -1)
   fi
-  # Strategy 3: Look for TPS line (contains transaction count)
-  if [[ -z "$total_tx" ]]; then
-    total_tx=$(grep -iE "^tps.*including" "$log" | grep -oE '[0-9]+' | head -1)
+  # Strategy 3: Look for TPS line with transaction info
+  if [[ -z "$total_tx" ]] || [[ "$total_tx" == "0" ]]; then
+    total_tx=$(grep -iE "tps.*\(including connections" "$log" | \
+      grep -oE '[0-9]+' | head -1)
   fi
-  # Strategy 4: Extract from final summary
-  if [[ -z "$total_tx" ]]; then
-    total_tx=$(tail -20 "$log" | grep -oE '[0-9]+\s+transactions' | grep -oE '^[0-9]+' | head -1)
+  # Strategy 4: Extract from "X transactions" pattern
+  if [[ -z "$total_tx" ]] || [[ "$total_tx" == "0" ]]; then
+    total_tx=$(grep -oE '[0-9]+\s+transactions?' "$log" | grep -oE '^[0-9]+' | head -1)
   fi
-  # Default to "unknown" if we can't parse it
-  if [[ -z "$total_tx" ]]; then
+  # Strategy 5: Look for any large number near "transaction" keyword (transaction count is usually large)
+  if [[ -z "$total_tx" ]] || [[ "$total_tx" == "0" ]]; then
+    total_tx=$(grep -iE "transaction" "$log" | grep -oE '[0-9]{3,}' | head -1)
+  fi
+  # Default to "unknown" if we still can't parse it
+  if [[ -z "$total_tx" ]] || [[ "$total_tx" == "0" ]]; then
     total_tx="unknown"
   fi
   
@@ -713,10 +719,13 @@ test_zero_data_loss() {
   local db_consistency=$(PGPASSWORD="$POSTGRES_PASS" psql -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -tAc \
     "SELECT COUNT(*) FROM pgbench_accounts WHERE abalance >= 0;" 2>/dev/null || echo "0")
   
-  # Debug: Show pgbench log summary if transaction count is unknown
-  if [[ "$total_tx" == "unknown" ]]; then
-    say "   Debug: pgbench log summary (last 10 lines):"
-    tail -10 "$log" 2>/dev/null | sed 's/^/      /' || true
+  # Debug: Show pgbench log summary if transaction count is unknown or suspiciously low
+  if [[ "$total_tx" == "unknown" ]] || [[ "$total_tx" -lt 10 ]]; then
+    say "   Debug: pgbench log summary (checking for transaction count)..."
+    tail -15 "$log" 2>/dev/null | sed 's/^/      /' || true
+    # Also show lines with "transaction" keyword
+    say "   Debug: Lines containing 'transaction':"
+    grep -iE "transaction" "$log" 2>/dev/null | tail -5 | sed 's/^/      /' || true
   fi
   
   if [[ "$sync_state" == "sync" ]]; then
