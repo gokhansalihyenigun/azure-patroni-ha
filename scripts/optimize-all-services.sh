@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -eo pipefail
+# Note: 'u' flag removed from set -euo pipefail to allow unbound variables
+# for BASH_SOURCE array when script is executed via pipe (curl | bash)
+# We use ${VAR:-} syntax throughout for safety
 
 # Azure Patroni HA PostgreSQL - Comprehensive Performance Optimization Script
 # This script optimizes PostgreSQL, Patroni, etcd, and PgBouncer for maximum performance
@@ -434,10 +437,8 @@ main() {
 
 # Run if executed directly
 # Handle both direct execution and pipe execution (curl ... | bash)
-if [[ -n "${BASH_SOURCE[0]:-}" ]] && [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  main "$@"
-elif [[ -z "${BASH_SOURCE[0]:-}" ]]; then
-  # Executed via pipe (curl ... | bash), BASH_SOURCE may be unbound
+# When executed via pipe, BASH_SOURCE array may be empty, so always run main
+if [[ "${BASH_SOURCE[0]:-}" == "${0}" ]] || [[ "${#BASH_SOURCE[@]}" -eq 0 ]]; then
   main "$@"
 fi
 
