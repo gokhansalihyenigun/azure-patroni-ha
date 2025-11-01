@@ -412,6 +412,7 @@ measure_failover() {
 
   local cluster_json leader candidate leader_ip candidate_ip start end dur
   # Discover leader and best candidate with retries across both nodes (tolerate 503 under load)
+  # Enhanced: Also check individual node APIs if cluster view is incomplete
   leader=""; candidate=""
   for attempt in $(seq 1 60); do
     for ip in "${DB_NODES[@]}"; do
@@ -421,10 +422,68 @@ measure_failover() {
       c=$(echo "$out" | jq -r '.members[] | select(.role!="leader" and .role!="primary" and ((.role=="sync_standby") or (.state=="running"))) | .name' 2>/dev/null | head -1 || echo "")
       if [[ -n "$l" && -n "$c" ]]; then leader="$l"; candidate="$c"; break 2; fi
     done
+    
+    # Fallback: If cluster view incomplete, try individual node APIs
+    if [[ -z "$leader" || -z "$candidate" ]]; then
+      for ip in "${DB_NODES[@]}"; do
+        node_info=$(curl -fsS "http://$ip:$PATRONI_API_PORT/patroni" 2>/dev/null || true)
+        if [[ -n "$node_info" ]]; then
+          node_role=$(echo "$node_info" | jq -r '.role // ""' 2>/dev/null || echo "")
+          node_name=$(echo "$node_info" | jq -r '.scope + "/" + .name' 2>/dev/null || echo "")
+          if [[ "$node_name" == *"/"* ]]; then
+            node_name="${node_name##*/}"
+          fi
+          if [[ -z "$node_name" ]] || [[ "$node_name" == "null" ]]; then
+            case "$ip" in
+              10.50.1.4) node_name="pgpatroni-1" ;;
+              10.50.1.5) node_name="pgpatroni-2" ;;
+              *) node_name="node-$ip" ;;
+            esac
+          fi
+          
+          if [[ "$node_role" == "leader" ]] || [[ "$node_role" == "primary" ]]; then
+            if [[ -z "$leader" ]]; then
+              leader="$node_name"
+              warn "Leader found via node API: $leader (on $ip)"
+            fi
+          elif [[ "$node_role" == "replica" ]] || [[ "$node_role" == "standby_leader" ]]; then
+            if [[ -z "$candidate" ]]; then
+              candidate="$node_name"
+              warn "Candidate found via node API: $candidate (on $ip)"
+            fi
+          fi
+        fi
+      done
+      
+      if [[ -n "$leader" && -n "$candidate" ]]; then
+        break  # Got both from individual APIs
+      fi
+    fi
+    
     sleep 2
   done
+  
   if [[ -z "$leader" || -z "$candidate" ]]; then
     fail "Failover: cannot determine leader/candidate"
+    say "   Attempted to find leader/candidate from:"
+    for ip in "${DB_NODES[@]}"; do
+      say "   - Cluster API (http://$ip:$PATRONI_API_PORT/cluster):"
+      cluster_out=$(curl -fsS "http://$ip:$PATRONI_API_PORT/cluster" 2>/dev/null || echo "failed")
+      if [[ "$cluster_out" != "failed" ]]; then
+        echo "$cluster_out" | jq -r '.members[] | "      \(.name): role=\(.role), state=\(.state)"' 2>/dev/null || echo "      (parse failed)"
+      else
+        say "      (connection failed)"
+      fi
+      say "   - Node API (http://$ip:$PATRONI_API_PORT/patroni):"
+      node_out=$(curl -fsS "http://$ip:$PATRONI_API_PORT/patroni" 2>/dev/null || echo "failed")
+      if [[ "$node_out" != "failed" ]]; then
+        node_role=$(echo "$node_out" | jq -r '.role // "unknown"' 2>/dev/null || echo "unknown")
+        node_state=$(echo "$node_out" | jq -r '.state // "unknown"' 2>/dev/null || echo "unknown")
+        say "      role=$node_role, state=$node_state"
+      else
+        say "      (connection failed)"
+      fi
+    done
     return 1
   fi
   leader_ip=$(name_to_ip "$leader")
