@@ -162,3 +162,28 @@ curl -s http://10.50.1.4:8008/cluster | jq
 # Check etcd cluster
 ETCDCTL_API=3 etcdctl --endpoints=http://10.50.1.4:2379,http://10.50.1.5:2379 member list
 ```
+
+## Performance Optimization
+
+After deployment, run the optimization script to apply production-ready performance settings:
+
+```bash
+# Apply comprehensive optimizations (PostgreSQL, Patroni, etcd, PgBouncer, system-level)
+curl -fsSL https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha/main/scripts/optimize-all-services.sh | bash
+```
+
+**Optimizations Applied:**
+- PostgreSQL: Memory tuning (32GB shared_buffers, 96GB effective_cache_size), max_connections=500, parallel workers=30
+- Patroni: Faster failover (loop_wait=5s, retry_timeout=5s)
+- etcd: Improved performance (heartbeat=100ms, election_timeout=1000ms)
+- PgBouncer: Increased pool_size=600, max_client_conn=6000
+- System: Kernel tuning for high performance
+
+**Performance Metrics (Tested):**
+- Failover: 4-7 seconds (normal and under load)
+- Write Performance: ~1,182 TPS (50 clients, 8 jobs)
+- Latency: ~1.08 ms average (p50)
+- Concurrent Connections: 200+ connections tested successfully
+- Replication Lag: < 1 MB (near-zero lag)
+
+For detailed performance metrics and cluster information, see [CLUSTER_DETAILS.md](CLUSTER_DETAILS.md)
