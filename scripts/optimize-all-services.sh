@@ -141,16 +141,39 @@ optimize_patroni() {
 # Backup original config
 cp /etc/patroni/patroni.yml /etc/patroni/patroni.yml.backup.$(date +%s) 2>/dev/null || true
 
-# OPTIMAL FAILOVER SETTINGS (AGGRESSIVE OPTIMIZATION):
-# ttl: 18s (leader lock timeout - must be > 3 * loop_wait, reduced for faster failover)
-# loop_wait: 5s (cluster state check interval - aggressive optimization for faster detection)
+# OPTIMAL FAILOVER SETTINGS (AGGRESSIVE OPTIMIZATION - SAFE VERSION):
+# ttl: 18s (leader lock timeout - must be > 3 * loop_wait, 18/5 = 3.6x safety margin)
+# loop_wait: 5s (cluster state check interval - aggressive but safe)
 # retry_timeout: 5s (operation retry timeout - faster retries)
 # These give ~15-18s worst-case failover detection (loop_wait * 3 + small buffer)
-# More aggressive than default 8s, but Premium SSD v2 + fast etcd can handle it
+# Note: etcd heartbeat=100ms, election=1000ms - much faster than loop_wait, so safe
 
+# Validate current etcd is healthy before making changes
+echo "Validating etcd health before Patroni optimization..."
+for i in {1..5}; do
+  if curl -fsS http://127.0.0.1:2379/health >/dev/null 2>&1; then
+    echo "✓ etcd is healthy"
+    break
+  fi
+  if [ $i -eq 5 ]; then
+    echo "ERROR: etcd is not healthy, aborting Patroni optimization"
+    exit 1
+  fi
+  sleep 2
+done
+
+# Apply optimizations
 sed -i 's/ttl: [0-9]*/ttl: 18/' /etc/patroni/patroni.yml
 sed -i 's/loop_wait: [0-9]*/loop_wait: 5/' /etc/patroni/patroni.yml
 sed -i 's/retry_timeout: [0-9]*/retry_timeout: 5/' /etc/patroni/patroni.yml
+
+# Validate YAML syntax
+python3 -c "import yaml; yaml.safe_load(open('/etc/patroni/patroni.yml'))" || {
+  echo "ERROR: Patroni YAML syntax error after modification"
+  echo "Restoring from backup..."
+  cp /etc/patroni/patroni.yml.backup.* /etc/patroni/patroni.yml 2>/dev/null || true
+  exit 1
+}
 
 # ZERO DATA LOSS SETTINGS (already should be set, but ensure):
 sed -i 's/synchronous_mode:.*/synchronous_mode: true/' /etc/patroni/patroni.yml
@@ -170,15 +193,37 @@ if ! grep -q "use_pg_rewind" /etc/patroni/patroni.yml || ! grep -q "use_pg_rewin
 fi
 
 # Restart Patroni to apply changes
+echo "Restarting Patroni service..."
 systemctl restart patroni
-sleep 5
+sleep 10  # Give more time for Patroni to start
 
-# Verify Patroni is running
-if systemctl is-active --quiet patroni; then
-  echo "Patroni optimized and restarted successfully"
+# Verify Patroni is running and healthy
+echo "Verifying Patroni health..."
+for i in {1..10}; do
+  if systemctl is-active --quiet patroni && curl -fsS http://127.0.0.1:8008/health >/dev/null 2>&1; then
+    echo "✓ Patroni is healthy and running"
+    break
+  fi
+  if [ $i -eq 10 ]; then
+    echo "ERROR: Patroni failed to start or is unhealthy"
+    echo "Restoring from backup..."
+    cp /etc/patroni/patroni.yml.backup.* /etc/patroni/patroni.yml 2>/dev/null || true
+    systemctl restart patroni
+    echo "Original config restored. Check logs: journalctl -u patroni -n 50"
+    exit 1
+  fi
+  sleep 3
+done
+
+# Verify cluster state is still good (both nodes visible)
+echo "Verifying cluster view..."
+sleep 5
+cluster_members=$(curl -fsS http://127.0.0.1:8008/cluster 2>/dev/null | python3 -c "import sys, json; data=json.load(sys.stdin); print(len(data.get('members', [])))" 2>/dev/null || echo "0")
+if [ "$cluster_members" -ge "2" ]; then
+  echo "✓ Cluster view is complete ($cluster_members members)"
 else
-  echo "Warning: Patroni restart may have failed, check status"
-  systemctl status patroni --no-pager || true
+  echo "WARNING: Cluster view shows only $cluster_members member(s), expected 2"
+  echo "This may be temporary, but monitor closely"
 fi
 BASH
   
