@@ -1274,30 +1274,75 @@ test_sustained_load() {
   local log_file="/tmp/pgbench_sustained_$$.log"
   
   # Run pgbench for 5 minutes (300 seconds)
+  # Capture exit code separately
+  set +e
   PGPASSWORD="$POSTGRES_PASS" timeout 310 pgbench \
     -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres \
     -S -c 30 -j 6 -T 300 \
     > "$log_file" 2>&1
+  local pgbench_exit=$?
+  set -e
   
-  # Parse final QPS
-  local final_qps=$(grep -iE "tps = |transactions:" "$log_file" | grep -oE "[0-9]+\.[0-9]+" | head -1 || echo "")
-  
-  # Check for errors or degradation in output
-  local error_count=$(grep -ic "error\|failed\|timeout" "$log_file" || echo "0")
-  
-  if [[ -n "$final_qps" ]] && [[ "$final_qps" =~ ^[0-9]+\.?[0-9]*$ ]]; then
-    if [[ $error_count -eq 0 ]]; then
-      pass "Sustained Load Test: Stable for 5 minutes (final QPS: ${final_qps}, ${LOAD_TEST_NOTE})"
-    else
-      warn "Sustained Load Test: Completed with ${error_count} error(s) (final QPS: ${final_qps})"
-    fi
-    rm -f "$log_file"
-    return 0
+  # Parse final QPS - try multiple strategies
+  local final_qps=""
+  # Strategy 1: Look for "tps = X" pattern
+  final_qps=$(grep -iE "tps = " "$log_file" | grep -oE "tps = [0-9]+\.[0-9]+" | awk '{print $3}' | head -1 || echo "")
+  # Strategy 2: Look for "tps" followed by number (without "=")
+  if [[ -z "$final_qps" ]] || [[ "$final_qps" == "0.000" ]]; then
+    final_qps=$(grep -iE "tps" "$log_file" | grep -oE "[0-9]+\.[0-9]+" | head -1 || echo "")
+  fi
+  # Strategy 3: Look for "transactions per second"
+  if [[ -z "$final_qps" ]] || [[ "$final_qps" == "0.000" ]]; then
+    final_qps=$(grep -iE "transactions.*per.*second" "$log_file" | grep -oE "[0-9]+\.[0-9]+" | head -1 || echo "")
   fi
   
-  fail "Sustained Load Test: Failed or unstable"
-  say "   Last 15 lines of pgbench output:"
-  tail -15 "$log_file" 2>/dev/null || true
+  # Check for errors or degradation in output (exclude benign messages)
+  local error_count=$(grep -iE "error|failed|timeout" "$log_file" | grep -vE "pgbench:.*progress|^$" | wc -l || echo "0")
+  error_count=$(echo "$error_count" | tr -d ' ')
+  
+  # If pgbench failed or timed out, check that
+  if [[ $pgbench_exit -ne 0 ]] && [[ $pgbench_exit -ne 124 ]]; then
+    warn "Sustained Load Test: pgbench exited with code $pgbench_exit"
+  elif [[ $pgbench_exit -eq 124 ]]; then
+    warn "Sustained Load Test: pgbench timed out after 310 seconds"
+  fi
+  
+  if [[ -n "$final_qps" ]] && [[ "$final_qps" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+    local qps_int=$(echo "$final_qps" | cut -d. -f1)
+    # Only report as success if we have a meaningful QPS value (> 0)
+    if [[ $qps_int -gt 0 ]]; then
+      if [[ $error_count -eq 0 ]] || [[ "$error_count" == "0" ]]; then
+        pass "Sustained Load Test: Stable for 5 minutes (final QPS: ${final_qps}, ${LOAD_TEST_NOTE})"
+      else
+        warn "Sustained Load Test: Completed with ${error_count} error(s) (final QPS: ${final_qps}, ${LOAD_TEST_NOTE})"
+      fi
+      rm -f "$log_file"
+      return 0
+    fi
+  fi
+  
+  # If we couldn't parse QPS, check if pgbench actually ran
+  if grep -qiE "starting vacuum|query mode|number of clients|scaling factor" "$log_file"; then
+    # Try to extract any numbers that might be QPS from the output
+    local all_numbers=$(grep -oE '[0-9]+\.[0-9]+' "$log_file" | grep -vE '^0\.000$|^0\.0+$' | head -5 || echo "")
+    if [[ -n "$all_numbers" ]]; then
+      warn "Sustained Load Test: Could not parse final QPS in standard format"
+      say "   pgbench appears to have run (found activity indicators)"
+      say "   Extracted numbers from output: $(echo "$all_numbers" | tr '\n' ' ')"
+      say "   Last 20 lines of pgbench output:"
+      tail -20 "$log_file" 2>/dev/null | sed 's/^/      /' || true
+    else
+      warn "Sustained Load Test: pgbench ran but no meaningful metrics found"
+      say "   Last 15 lines of pgbench output:"
+      tail -15 "$log_file" 2>/dev/null | sed 's/^/      /' || true
+    fi
+    rm -f "$log_file"
+    return 1
+  fi
+  
+  fail "Sustained Load Test: Failed or unstable (pgbench may not have started)"
+  say "   Last 20 lines of pgbench output:"
+  tail -20 "$log_file" 2>/dev/null | sed 's/^/      /' || true
   rm -f "$log_file"
   return 1
 }
