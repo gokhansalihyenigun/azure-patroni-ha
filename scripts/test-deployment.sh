@@ -547,13 +547,16 @@ test_zero_data_loss() {
   : > "$log"
   
   # Start write workload (INSERT/UPDATE - TPC-B standard workload, NO -S flag)
-  say "Starting write workload (INSERT/UPDATE transactions, 30 seconds) ${LOAD_TEST_NOTE}..."
-  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres \
+  # IMPORTANT: Write tests always use DB ILB directly, not PgBouncer
+  # Reason: PgBouncer transaction pooling can cause issues during failover for writes
+  #          For realistic write tests, we need direct DB connection to primary
+  say "Starting write workload (INSERT/UPDATE transactions, 30 seconds) via DB ILB (write tests bypass PgBouncer)..."
+  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres \
     -c 4 -j 2 -P 2 -T 30 -M simple >"$log" 2>&1 &
   local bench_pid=$!
   
-  say "Write workload started (PID: $bench_pid), waiting 5s for stabilization..."
-  sleep 5  # Let workload stabilize
+  say "Write workload started (PID: $bench_pid), waiting 8s for stabilization..."
+  sleep 8  # Let workload stabilize and establish connections
   
   # Trigger failover during write workload
   say "Triggering failover during write workload..."
@@ -645,7 +648,13 @@ test_zero_data_loss() {
   
   # Wait for pgbench to finish (up to 35 seconds total)
   say "Waiting for write workload to complete (may take up to 30 seconds)..."
+  # Wait for pgbench to complete, but handle errors gracefully
+  # Failover might cause connection errors which is expected during RPO=0 testing
   wait $bench_pid 2>/dev/null || true
+  local bench_exit=$?
+  
+  # Give extra time for any in-flight transactions to complete after failover
+  sleep 2
   
   # Check transaction integrity
   say "Verifying transaction integrity after failover..."
