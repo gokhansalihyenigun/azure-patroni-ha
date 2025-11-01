@@ -37,23 +37,29 @@ for host in "${DB_NODES[@]}"; do
   ssh_cmd "$host" "sudo grep -A5 'parameters:' /etc/patroni/patroni.yml | grep -i max_connection" || say "  No max_connections in Patroni config"
   
   # Get current value
-  local current=$(ssh_cmd "$host" "PGPASSWORD='$POSTGRES_PASS' psql -h 127.0.0.1 -U postgres -d postgres -tAc \"SELECT setting FROM pg_settings WHERE name='max_connections';\" 2>/dev/null")
+  current=$(ssh_cmd "$host" "PGPASSWORD='$POSTGRES_PASS' psql -h 127.0.0.1 -U postgres -d postgres -tAc \"SELECT setting FROM pg_settings WHERE name='max_connections';\" 2>/dev/null")
   say "Current max_connections: ${current:-unknown}"
   
   # If still 100, force update
-  if [[ "$current" == "100" ]]; then
+  if [[ "${current:-100}" == "100" ]]; then
     say "max_connections is still 100, forcing update..."
     
-    # Ensure it's in postgresql.auto.conf
+    # Remove max_connections from postgresql.conf (it overrides auto.conf)
+    say "Removing max_connections from postgresql.conf (it overrides auto.conf)..."
     ssh_cmd "$host" "sudo -u postgres bash" <<'BASH'
-# Remove old max_connections from auto.conf if exists
-sed -i '/^max_connections/d' /pgdata/postgresql.auto.conf 2>/dev/null || true
+# Comment out or remove max_connections from postgresql.conf
+sed -i 's/^max_connections = .*/# max_connections = 100  # Commented out - using postgresql.auto.conf value/' /pgdata/postgresql.conf 2>/dev/null || \
+sed -i '/^max_connections =/d' /pgdata/postgresql.conf 2>/dev/null || true
 
-# Add new value
+# Ensure it's in postgresql.auto.conf
+sed -i '/^max_connections/d' /pgdata/postgresql.auto.conf 2>/dev/null || true
 echo "max_connections = '500'" >> /pgdata/postgresql.auto.conf
 
 # Verify
-grep max_connections /pgdata/postgresql.auto.conf
+echo "postgresql.conf (should be commented or removed):"
+grep -i max_connection /pgdata/postgresql.conf 2>/dev/null || echo "  (not found in postgresql.conf - good)"
+echo "postgresql.auto.conf:"
+grep max_connections /pgdata/postgresql.auto.conf 2>/dev/null || echo "  (not found - error!)"
 BASH
     
     # Restart PostgreSQL via Patroni
@@ -63,10 +69,10 @@ BASH
     sleep 40
     
     # Check again
-    local new_value=$(ssh_cmd "$host" "PGPASSWORD='$POSTGRES_PASS' psql -h 127.0.0.1 -U postgres -d postgres -tAc \"SELECT setting FROM pg_settings WHERE name='max_connections';\" 2>/dev/null")
+    new_value=$(ssh_cmd "$host" "PGPASSWORD='$POSTGRES_PASS' psql -h 127.0.0.1 -U postgres -d postgres -tAc \"SELECT setting FROM pg_settings WHERE name='max_connections';\" 2>/dev/null")
     say "New max_connections: ${new_value:-unknown}"
     
-    if [[ "$new_value" == "500" ]]; then
+    if [[ "${new_value:-}" == "500" ]]; then
       echo "✓ PASSED: max_connections is now 500"
     else
       echo "✗ FAILED: max_connections is still ${new_value:-unknown}"
