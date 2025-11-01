@@ -823,12 +823,32 @@ profile_failover_qps() {
   ensure_pgbench_init || true
   local log="/tmp/pgbench_load_${label}.log"
   : > "$log"
-  # Cap worker threads to CPU count to avoid instability
+  # For QPS targeting, we allow jobs to exceed CPU count (I/O bound queries)
+  # But cap at reasonable maximum to avoid system overload
   local maxj=$(nproc 2>/dev/null || echo 4)
   local jobs_use=$jobs
-  if (( jobs_use > maxj )); then jobs_use=$maxj; fi
+  # Allow 2x CPU cores for I/O bound SELECT queries, but cap at jobs parameter
+  local reasonable_max=$((maxj * 2))
+  if (( jobs_use > reasonable_max )); then 
+    say "   Adjusting jobs from $jobs to $reasonable_max (2x CPU cores) for safety"
+    jobs_use=$reasonable_max
+  fi
+  
+  # Important: If using PgBouncer, client count is limited by pool_size
+  # PgBouncer default pool_size is typically 200, so >200 clients won't help
+  local effective_clients=$clients
+  if [[ "$LOAD_TEST_HOST" == "$PGB_ILB_IP" ]]; then
+    # PgBouncer pool size check - don't exceed pool capacity
+    local pool_size=200  # Default PgBouncer pool_size
+    if (( clients > pool_size )); then
+      say "   Warning: Client count ($clients) exceeds PgBouncer pool_size ($pool_size), adjusting to $pool_size"
+      effective_clients=$pool_size
+    fi
+  fi
+  
   # -S flag: SELECT-only mode (queries, not transactions) - measures QPS
-  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres -c "$clients" -j "$jobs_use" -P 2 -T "$t" -S -M simple >"$log" 2>&1 &
+  say "   Running pgbench with $effective_clients clients, $jobs_use jobs for target ${label} QPS..."
+  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres -c "$effective_clients" -j "$jobs_use" -P 2 -T "$t" -S -M simple >"$log" 2>&1 &
   local bench_pid=$!
   sleep 10
   # Warm-up: ensure cluster shows leader and a running replica before switchover
