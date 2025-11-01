@@ -491,9 +491,13 @@ test_zero_data_loss() {
     return 0
   fi
   say "Zero Data Loss Test (RPO=0 validation)"
-  ensure_pgbench_init || return 1
+  if ! ensure_pgbench_init; then
+    fail "Zero Data Loss Test: pgbench initialization failed"
+    return 1
+  fi
   
-  # Create test table for transaction tracking
+  say "Preparing test environment..."
+  # Create test table for transaction tracking (optional, we'll use pgbench tables)
   PGPASSWORD="$POSTGRES_PASS" psql -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c "
     CREATE TABLE IF NOT EXISTS failover_test_tx (
       id SERIAL PRIMARY KEY,
@@ -502,17 +506,18 @@ test_zero_data_loss() {
       committed BOOLEAN DEFAULT FALSE
     );
     TRUNCATE TABLE failover_test_tx;
-  " >/dev/null 2>&1 || return 1
+  " >/dev/null 2>&1 || say "Note: Could not create test table (will use pgbench tables)"
   
   local log="/tmp/pgbench_write_failover.log"
   : > "$log"
   
   # Start write workload (INSERT/UPDATE - TPC-B standard workload, NO -S flag)
-  say "Starting write workload (INSERT/UPDATE transactions)..."
+  say "Starting write workload (INSERT/UPDATE transactions, 30 seconds)..."
   PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres \
     -c 4 -j 2 -P 2 -T 30 -M simple >"$log" 2>&1 &
   local bench_pid=$!
   
+  say "Write workload started (PID: $bench_pid), waiting 5s for stabilization..."
   sleep 5  # Let workload stabilize
   
   # Trigger failover during write workload
@@ -552,6 +557,7 @@ test_zero_data_loss() {
     -d "{\"leader\": \"$leader\", \"candidate\": \"$candidate\"}" >/dev/null 2>&1 || true
   
   # Wait for failover to complete (check both nodes)
+  say "Waiting for failover to complete (up to 30 seconds)..."
   local failover_complete=false
   for i in $(seq 1 30); do
     for ip in "${DB_NODES[@]}"; do
@@ -562,8 +568,17 @@ test_zero_data_loss() {
         break 2
       fi
     done
+    if [[ $((i % 5)) -eq 0 ]]; then
+      say "   Still waiting for failover... ($i/30)"
+    fi
     sleep 1
   done
+  
+  if [[ "$failover_complete" == "true" ]]; then
+    say "Failover completed successfully"
+  else
+    say "Warning: Failover may not have completed within timeout"
+  fi
   
   local switchover_end=$(date +%s)
   local failover_dur=$((switchover_end - switchover_start))
