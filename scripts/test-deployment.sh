@@ -16,6 +16,21 @@ POSTGRES_PASS="ChangeMe123Pass"
 PGBOUNCER_USER="pgbouncer"
 PGBOUNCER_PASS="StrongPass123"
 
+# Use PgBouncer for load tests? (true = realistic scenario, false = direct DB)
+# Set USE_PGBOUNCER=true to test through PgBouncer connection pooler
+USE_PGBOUNCER="${USE_PGBOUNCER:-false}"
+
+# Determine which endpoint to use for load tests
+if [[ "$USE_PGBOUNCER" == "true" ]] || [[ "$USE_PGBOUNCER" == "yes" ]]; then
+  LOAD_TEST_HOST="$PGB_ILB_IP"
+  LOAD_TEST_PORT="$PGB_PORT"
+  LOAD_TEST_NOTE="via PgBouncer"
+else
+  LOAD_TEST_HOST="$DB_ILB_IP"
+  LOAD_TEST_PORT="$DB_PORT"
+  LOAD_TEST_NOTE="direct (DB ILB)"
+fi
+
 retry() {
   local attempts=$1; shift
   local delay=$1; shift
@@ -383,12 +398,12 @@ if ensure_pgbench; then
   # Wait a bit after failover to ensure cluster is stable
   sleep 3
   if ensure_pgbench_init; then
-    say "Running baseline performance test (10 seconds)..."
+    say "Running baseline performance test (10 seconds) ${LOAD_TEST_NOTE}..."
     # short run to verify and show QPS (-S mode: SELECT-only queries)
     # Use timeout and capture both stdout and stderr
     set +e  # Temporarily disable exit on error for pgbench
     say "Starting pgbench command..."
-    out=$(PGPASSWORD="$POSTGRES_PASS" timeout 15 pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 10 -c 8 -j 4 -S -M simple 2>&1)
+    out=$(PGPASSWORD="$POSTGRES_PASS" timeout 15 pgbench -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres -P 2 -T 10 -c 8 -j 4 -S -M simple 2>&1)
     pgbench_exit=$?
     set -e  # Re-enable exit on error
     say "pgbench command finished with exit code: $pgbench_exit"
@@ -428,13 +443,13 @@ failover_under_load() {
     say "pgbench not available, skipping failover under load test"
     return 0
   fi
-  say "Failover under load"
-  # start light write load via ILB
+  say "Failover under load ${LOAD_TEST_NOTE}"
+  # start light write load via ILB (or PgBouncer if enabled)
   ensure_pgbench_init || true
   local log="/tmp/pgbench_load.log"
   : > "$log"
   # -S flag: SELECT-only mode (queries, not transactions) - measures QPS
-  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c 8 -j 4 -P 2 -T 60 -S -M simple >"$log" 2>&1 &
+  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres -c 8 -j 4 -P 2 -T 60 -S -M simple >"$log" 2>&1 &
   local bench_pid=$!
   sleep 10
   # reuse measure_failover but do not exit on failure
@@ -512,8 +527,8 @@ test_zero_data_loss() {
   : > "$log"
   
   # Start write workload (INSERT/UPDATE - TPC-B standard workload, NO -S flag)
-  say "Starting write workload (INSERT/UPDATE transactions, 30 seconds)..."
-  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres \
+  say "Starting write workload (INSERT/UPDATE transactions, 30 seconds) ${LOAD_TEST_NOTE}..."
+  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres \
     -c 4 -j 2 -P 2 -T 30 -M simple >"$log" 2>&1 &
   local bench_pid=$!
   
@@ -755,7 +770,7 @@ profile_failover_qps() {
   local clients="$1"; shift
   local jobs="$1"; shift
   local t=60
-  say "Failover under load (target ${label} QPS)"
+  say "Failover under load (target ${label} QPS) ${LOAD_TEST_NOTE}"
   ensure_pgbench_init || true
   local log="/tmp/pgbench_load_${label}.log"
   : > "$log"
@@ -764,7 +779,7 @@ profile_failover_qps() {
   local jobs_use=$jobs
   if (( jobs_use > maxj )); then jobs_use=$maxj; fi
   # -S flag: SELECT-only mode (queries, not transactions) - measures QPS
-  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -c "$clients" -j "$jobs_use" -P 2 -T "$t" -S -M simple >"$log" 2>&1 &
+  PGPASSWORD="$POSTGRES_PASS" pgbench -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres -c "$clients" -j "$jobs_use" -P 2 -T "$t" -S -M simple >"$log" 2>&1 &
   local bench_pid=$!
   sleep 10
   # Warm-up: ensure cluster shows leader and a running replica before switchover
