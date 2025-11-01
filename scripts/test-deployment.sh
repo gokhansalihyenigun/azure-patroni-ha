@@ -55,9 +55,16 @@ retry() {
   done
 }
 
+# Color codes for terminal output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
 say() { echo -e "$LOG_PREFIX $*"; }
-pass() { echo "✓ PASSED: $*"; }
-fail() { echo "✗ FAILED: $*"; }
+pass() { echo -e "${GREEN}✓ PASSED:${NC} $*"; }
+fail() { echo -e "${RED}✗ FAILED:${NC} $*"; }
+warn() { echo -e "${YELLOW}⚠ WARNING:${NC} $*"; }
 
 ensure_psql() {
   if command -v psql >/dev/null 2>&1; then
@@ -224,9 +231,51 @@ done
 if [[ -z "$CLUSTER_JSON" ]]; then
   CLUSTER_JSON=$(curl -fsS "http://${DB_NODES[0]}:$PATRONI_API_PORT/cluster" 2>/dev/null || true)
 fi
+
+# Enhanced: If cluster view is incomplete (only 1 member), try to get from individual node APIs
+member_count=$(echo "$CLUSTER_JSON" | jq '[.members[]] | length' 2>/dev/null || echo "0")
+if [[ "$member_count" -lt 2 ]]; then
+  warn "Cluster view incomplete ($member_count member(s)), trying individual node APIs..."
+  # Try to build complete view from individual node APIs
+  local complete_members="[]"
+  for ip in "${DB_NODES[@]}"; do
+    node_info=$(curl -fsS "http://$ip:$PATRONI_API_PORT/patroni" 2>/dev/null || true)
+    if [[ -n "$node_info" ]]; then
+      node_name=$(echo "$node_info" | jq -r '.scope + "/" + .name' 2>/dev/null || echo "")
+      # Convert scope/name to just name (remove scope prefix if present)
+      if [[ "$node_name" == *"/"* ]]; then
+        node_name="${node_name##*/}"
+      fi
+      if [[ -z "$node_name" ]] || [[ "$node_name" == "null" ]]; then
+        case "$ip" in
+          10.50.1.4) node_name="pgpatroni-1" ;;
+          10.50.1.5) node_name="pgpatroni-2" ;;
+          *) node_name="node-$ip" ;;
+        esac
+      fi
+      node_role=$(echo "$node_info" | jq -r '.role // "unknown"' 2>/dev/null || echo "unknown")
+      node_state=$(echo "$node_info" | jq -r '.state // "unknown"' 2>/dev/null || echo "unknown")
+      # Build member object
+      member_obj=$(jq -n --arg name "$node_name" --arg role "$node_role" --arg state "$node_state" --arg ip "$ip" --arg api "http://$ip:$PATRONI_API_PORT/patroni" \
+        '{name: $name, role: $role, state: $state, host: $ip, api_url: $api}')
+      complete_members=$(echo "$complete_members" | jq --argjson member "$member_obj" '. += [$member]' 2>/dev/null || echo "$complete_members")
+    fi
+  done
+  # If we got a better view, use it
+  if [[ $(echo "$complete_members" | jq 'length' 2>/dev/null || echo "0") -gt "$member_count" ]]; then
+    CLUSTER_JSON=$(echo "$CLUSTER_JSON" | jq --argjson members "$complete_members" '.members = $members' 2>/dev/null || echo "$CLUSTER_JSON")
+    warn "Rebuilt cluster view from individual APIs: $(echo "$complete_members" | jq 'length') member(s)"
+  fi
+fi
+
 if [[ -n "$CLUSTER_JSON" ]]; then
+  member_count_final=$(echo "$CLUSTER_JSON" | jq '[.members[]] | length' 2>/dev/null || echo "0")
   echo "$CLUSTER_JSON" | jq . >/dev/null 2>&1 || echo "$CLUSTER_JSON"
-  pass "Cluster status retrieved"
+  if [[ "$member_count_final" -ge 2 ]]; then
+    pass "Cluster status retrieved ($member_count_final members)"
+  else
+    warn "Cluster status retrieved but only $member_count_final member(s) visible (expected 2)"
+  fi
 else
   fail "Could not retrieve cluster status"
 fi
