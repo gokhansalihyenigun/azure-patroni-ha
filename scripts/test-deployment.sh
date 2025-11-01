@@ -768,11 +768,6 @@ test_zero_data_loss() {
       total_tx="unknown"
     fi
   fi
-  fi
-  # Default to "unknown" if we still can't parse it
-  if [[ -z "$total_tx" ]] || [[ "$total_tx" == "0" ]]; then
-    total_tx="unknown"
-  fi
   
   # Check database consistency (all committed transactions should be visible)
   local db_consistency=$(PGPASSWORD="$POSTGRES_PASS" psql -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -tAc \
