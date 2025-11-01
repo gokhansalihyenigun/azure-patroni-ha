@@ -47,26 +47,48 @@ for host in "${DB_NODES[@]}"; do
     # Remove max_connections from postgresql.conf (it overrides auto.conf)
     say "Removing max_connections from postgresql.conf (it overrides auto.conf)..."
     ssh_cmd "$host" "sudo -u postgres bash" <<'BASH'
-# Comment out or remove max_connections from postgresql.conf
-sed -i 's/^max_connections = .*/# max_connections = 100  # Commented out - using postgresql.auto.conf value/' /pgdata/postgresql.conf 2>/dev/null || \
-sed -i '/^max_connections =/d' /pgdata/postgresql.conf 2>/dev/null || true
+# Completely remove max_connections line from postgresql.conf (including commented versions)
+sed -i '/^[[:space:]]*#.*max_connections/d' /pgdata/postgresql.conf 2>/dev/null || true
+sed -i '/^[[:space:]]*max_connections/d' /pgdata/postgresql.conf 2>/dev/null || true
+
+# Also check for include files
+if grep -q "^include" /pgdata/postgresql.conf 2>/dev/null; then
+  echo "Warning: postgresql.conf has include statements, checking included files..."
+  for inc_file in $(grep "^include" /pgdata/postgresql.conf | awk '{print $NF}' | tr -d "'\""); do
+    if [[ -f "/pgdata/$inc_file" ]]; then
+      echo "Checking /pgdata/$inc_file"
+      sed -i '/^[[:space:]]*max_connections/d' "/pgdata/$inc_file" 2>/dev/null || true
+    fi
+  done
+fi
 
 # Ensure it's in postgresql.auto.conf
 sed -i '/^max_connections/d' /pgdata/postgresql.auto.conf 2>/dev/null || true
 echo "max_connections = '500'" >> /pgdata/postgresql.auto.conf
 
 # Verify
-echo "postgresql.conf (should be commented or removed):"
-grep -i max_connection /pgdata/postgresql.conf 2>/dev/null || echo "  (not found in postgresql.conf - good)"
-echo "postgresql.auto.conf:"
-grep max_connections /pgdata/postgresql.auto.conf 2>/dev/null || echo "  (not found - error!)"
+echo "=== postgresql.conf (should have no max_connections) ==="
+grep -i max_connection /pgdata/postgresql.conf 2>/dev/null || echo "  ✓ Not found (good!)"
+echo "=== postgresql.auto.conf ==="
+grep max_connections /pgdata/postgresql.auto.conf 2>/dev/null || echo "  ✗ Not found (error!)"
 BASH
     
     # Restart PostgreSQL via Patroni
     say "Triggering PostgreSQL restart..."
     ssh_cmd "$host" "curl -fsS -X POST 'http://127.0.0.1:8008/restart' >/dev/null 2>&1 || true"
-    say "Waiting 40 seconds for restart..."
-    sleep 40
+    say "Waiting 60 seconds for PostgreSQL to fully restart and apply config..."
+    sleep 60
+    
+    # Double-check that PostgreSQL restarted
+    say "Checking PostgreSQL restart status..."
+    for i in {1..6}; do
+      if ssh_cmd "$host" "curl -fsS http://127.0.0.1:8008/patroni 2>/dev/null | grep -q '\"state\":\"running\"'"; then
+        say "PostgreSQL is running"
+        break
+      fi
+      say "Waiting for PostgreSQL to be ready... ($i/6)"
+      sleep 10
+    done
     
     # Check again
     new_value=$(ssh_cmd "$host" "PGPASSWORD='$POSTGRES_PASS' psql -h 127.0.0.1 -U postgres -d postgres -tAc \"SELECT setting FROM pg_settings WHERE name='max_connections';\" 2>/dev/null")
