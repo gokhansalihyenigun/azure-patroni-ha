@@ -393,7 +393,7 @@ flowchart LR
   - **Data Disk**: 1024 GB Premium SSD v2 (PremiumV2_LRS - **en yüksek IOPS ve throughput**)
   - **WAL Disk**: 512 GB Premium SSD v2 (PremiumV2_LRS)
   - **Disk Performansı**: Premium SSD v2 data diskler, Premium SSD'ye göre çok daha yüksek IOPS (80,000+ IOPS) ve throughput (1,200 MB/s+)
-- - **PostgreSQL Versiyonu**: 16.10
+- **PostgreSQL Versiyonu**: 16.10
 - **Replikasyon**: Senkron replikasyon (synchronous standby)
 - **Max Connections**: 500 (optimize edilmiş)
 - **Patroni Failover Süresi**: 4-7 saniye (loop_wait=5s optimize edilmiş)
