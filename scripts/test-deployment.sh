@@ -696,10 +696,47 @@ test_zero_data_loss() {
   say "   Current leader: ${leader:-unknown}"
   say "   Candidate replica: ${candidate:-unknown}"
   
+  # Enhanced leader detection: also try individual node APIs if not found in cluster view
+  if [[ -z "$leader" ]]; then
+    warn "Zero Data Loss Test: Leader not in cluster view, trying individual node APIs..."
+    for ip in "${DB_NODES[@]}"; do
+      node_info=$(curl -fsS "http://$ip:$PATRONI_API_PORT/patroni" 2>/dev/null || true)
+      if [[ -n "$node_info" ]]; then
+        node_role=$(echo "$node_info" | jq -r '.role // ""' 2>/dev/null || echo "")
+        if [[ "$node_role" == "leader" ]] || [[ "$node_role" == "primary" ]]; then
+          node_name=$(echo "$node_info" | jq -r '.scope + "/" + .name' 2>/dev/null || echo "")
+          if [[ "$node_name" == *"/"* ]]; then
+            node_name="${node_name##*/}"
+          fi
+          if [[ -z "$node_name" ]] || [[ "$node_name" == "null" ]]; then
+            case "$ip" in
+              10.50.1.4) node_name="pgpatroni-1" ;;
+              10.50.1.5) node_name="pgpatroni-2" ;;
+              *) node_name="node-$ip" ;;
+            esac
+          fi
+          leader="$node_name"
+          warn "Leader found via node API: $leader (on $ip)"
+          break
+        fi
+      fi
+    done
+  fi
+  
   if [[ -z "$leader" ]]; then
     fail "Zero Data Loss Test: Cannot determine leader"
     say "   Cluster state dump:"
     echo "$cluster_json" | jq '.' 2>/dev/null || echo "$cluster_json"
+    say "   Individual node APIs:"
+    for ip in "${DB_NODES[@]}"; do
+      node_out=$(curl -fsS "http://$ip:$PATRONI_API_PORT/patroni" 2>/dev/null || echo "failed")
+      if [[ "$node_out" != "failed" ]]; then
+        node_role=$(echo "$node_out" | jq -r '.role // "unknown"' 2>/dev/null || echo "unknown")
+        say "      $ip: role=$node_role"
+      else
+        say "      $ip: (connection failed)"
+      fi
+    done
     kill $bench_pid 2>/dev/null || true
     return 1
   fi
