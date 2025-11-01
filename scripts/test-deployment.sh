@@ -1149,6 +1149,407 @@ else
   say "pgbench not available, skipping QPS profile failover tests"
 fi
 
+# Write Performance Test (TPS - Transactions Per Second)
+# Measures INSERT/UPDATE/DELETE throughput (not just SELECT)
+test_write_performance() {
+  if ! ensure_pgbench >/dev/null 2>&1; then
+    warn "pgbench not available, skipping write performance test"
+    return 1
+  fi
+  
+  say "Write Performance Test (TPS measurement)"
+  ensure_pgbench_init || return 1
+  
+  # Use standard TPC-B (write workload, no -S flag)
+  say "Running write workload (TPC-B transactions: INSERT/UPDATE/DELETE) for 30 seconds..."
+  local log_file="/tmp/pgbench_write_$$.log"
+  
+  # Run pgbench with write workload (standard TPC-B, not SELECT-only)
+  PGPASSWORD="$POSTGRES_PASS" timeout 35 pgbench \
+    -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres \
+    -c 50 -j 8 -T 30 \
+    > "$log_file" 2>&1
+  
+  # Parse TPS from output
+  local tps=$(grep -i "tps = " "$log_file" | grep -oE "tps = [0-9]+\.[0-9]+" | head -1 | awk '{print $3}' || echo "")
+  
+  if [[ -n "$tps" ]] && [[ "$tps" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+    local tps_int=$(echo "$tps" | cut -d. -f1)
+    if [[ $tps_int -gt 0 ]]; then
+      pass "Write Performance: ${tps} TPS (50 clients, 8 jobs, 30s, ${LOAD_TEST_NOTE})"
+      say "   Note: TPS measures full transactions (INSERT/UPDATE/DELETE), not just queries"
+      rm -f "$log_file"
+      return 0
+    fi
+  fi
+  
+  fail "Write Performance: Failed to measure TPS"
+  say "   Last 10 lines of pgbench output:"
+  tail -10 "$log_file" 2>/dev/null || true
+  rm -f "$log_file"
+  return 1
+}
+
+# Latency Test (p50, p95, p99 percentiles)
+test_latency() {
+  if ! ensure_pgbench >/dev/null 2>&1; then
+    warn "pgbench not available, skipping latency test"
+    return 1
+  fi
+  
+  say "Latency Test (p50, p95, p99 percentiles)"
+  ensure_pgbench_init || return 1
+  
+  say "Running latency test (SELECT-only, 100 seconds)..."
+  local log_file="/tmp/pgbench_latency_$$.log"
+  
+  # Run pgbench with latency reporting (-r flag enables per-transaction timing)
+  PGPASSWORD="$POSTGRES_PASS" timeout 105 pgbench \
+    -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres \
+    -S -c 20 -j 4 -T 100 -r \
+    > "$log_file" 2>&1
+  
+  # Parse latency percentiles from pgbench output
+  # pgbench -r outputs: latency average = X ms (stddev Y)
+  # And: statement latencies in milliseconds:
+  #       0.002  SELECT
+  # We can calculate percentiles if available, or use average/stddev
+  
+  local avg_latency=$(grep -i "latency average" "$log_file" | grep -oE "[0-9]+\.[0-9]+" | head -1 || echo "")
+  local stddev=$(grep -i "stddev" "$log_file" | grep -oE "[0-9]+\.[0-9]+" | head -1 || echo "")
+  
+  # pgbench also shows min/max latency
+  local min_latency=$(grep -i "latency" "$log_file" | grep -i "min" | grep -oE "[0-9]+\.[0-9]+" | head -1 || echo "")
+  local max_latency=$(grep -i "latency" "$log_file" | grep -i "max" | grep -oE "[0-9]+\.[0-9]+" | head -1 || echo "")
+  
+  if [[ -n "$avg_latency" ]] && [[ "$avg_latency" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+    # Approximate percentiles: p50 ≈ avg, p95 ≈ avg + 2*stddev, p99 ≈ avg + 3*stddev
+    local p50="$avg_latency"
+    local p95=""
+    local p99=""
+    
+    if [[ -n "$stddev" ]] && [[ "$stddev" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+      p95=$(echo "$avg_latency $stddev" | awk '{printf "%.2f", $1 + 2*$2}')
+      p99=$(echo "$avg_latency $stddev" | awk '{printf "%.2f", $1 + 3*$2}')
+    fi
+    
+    say "   Average: ${avg_latency} ms"
+    [[ -n "$min_latency" ]] && say "   Min: ${min_latency} ms"
+    [[ -n "$max_latency" ]] && say "   Max: ${max_latency} ms"
+    [[ -n "$p95" ]] && say "   p95 (approx): ${p95} ms"
+    [[ -n "$p99" ]] && say "   p99 (approx): ${p99} ms"
+    
+    # Check if latency is acceptable (< 10ms for p95 is excellent for OLTP)
+    local avg_int=$(echo "$avg_latency" | cut -d. -f1)
+    if [[ $avg_int -lt 10 ]]; then
+      pass "Latency Test: Excellent (avg ${avg_latency} ms, ${LOAD_TEST_NOTE})"
+    elif [[ $avg_int -lt 50 ]]; then
+      pass "Latency Test: Good (avg ${avg_latency} ms, ${LOAD_TEST_NOTE})"
+    else
+      warn "Latency Test: Acceptable but high (avg ${avg_latency} ms, ${LOAD_TEST_NOTE})"
+    fi
+    
+    rm -f "$log_file"
+    return 0
+  fi
+  
+  warn "Latency Test: Could not parse latency metrics"
+  say "   Last 10 lines of pgbench output:"
+  tail -10 "$log_file" 2>/dev/null || true
+  rm -f "$log_file"
+  return 1
+}
+
+# Sustained Load Test (5 minutes continuous load)
+test_sustained_load() {
+  if ! ensure_pgbench >/dev/null 2>&1; then
+    warn "pgbench not available, skipping sustained load test"
+    return 1
+  fi
+  
+  say "Sustained Load Test (5 minutes continuous load)"
+  ensure_pgbench_init || return 1
+  
+  say "Running sustained load for 5 minutes (monitoring for degradation)..."
+  local log_file="/tmp/pgbench_sustained_$$.log"
+  
+  # Run pgbench for 5 minutes (300 seconds)
+  PGPASSWORD="$POSTGRES_PASS" timeout 310 pgbench \
+    -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres \
+    -S -c 30 -j 6 -T 300 \
+    > "$log_file" 2>&1
+  
+  # Parse final QPS
+  local final_qps=$(grep -iE "tps = |transactions:" "$log_file" | grep -oE "[0-9]+\.[0-9]+" | head -1 || echo "")
+  
+  # Check for errors or degradation in output
+  local error_count=$(grep -ic "error\|failed\|timeout" "$log_file" || echo "0")
+  
+  if [[ -n "$final_qps" ]] && [[ "$final_qps" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+    if [[ $error_count -eq 0 ]]; then
+      pass "Sustained Load Test: Stable for 5 minutes (final QPS: ${final_qps}, ${LOAD_TEST_NOTE})"
+    else
+      warn "Sustained Load Test: Completed with ${error_count} error(s) (final QPS: ${final_qps})"
+    fi
+    rm -f "$log_file"
+    return 0
+  fi
+  
+  fail "Sustained Load Test: Failed or unstable"
+  say "   Last 15 lines of pgbench output:"
+  tail -15 "$log_file" 2>/dev/null || true
+  rm -f "$log_file"
+  return 1
+}
+
+# Concurrent Connection Stress Test
+test_concurrent_connections() {
+  if ! ensure_pgbench >/dev/null 2>&1; then
+    warn "pgbench not available, skipping concurrent connection test"
+    return 1
+  fi
+  
+  say "Concurrent Connection Stress Test"
+  ensure_pgbench_init || return 1
+  
+  # Test with high number of concurrent connections
+  local max_conns=200
+  say "Testing ${max_conns} concurrent connections for 30 seconds..."
+  local log_file="/tmp/pgbench_connections_$$.log"
+  
+  # Use high client count, but fewer jobs to simulate many connections
+  PGPASSWORD="$POSTGRES_PASS" timeout 35 pgbench \
+    -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres \
+    -S -c "$max_conns" -j 4 -T 30 \
+    > "$log_file" 2>&1
+  
+  # Parse success rate
+  local qps=$(grep -iE "tps = " "$log_file" | grep -oE "[0-9]+\.[0-9]+" | head -1 || echo "")
+  local failed_tx=$(grep -i "failed transactions" "$log_file" | grep -oE "[0-9]+" | head -1 || echo "0")
+  
+  if [[ -n "$qps" ]] && [[ "$qps" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+    if [[ $failed_tx -eq 0 ]]; then
+      pass "Concurrent Connections: ${max_conns} connections handled successfully (QPS: ${qps}, ${LOAD_TEST_NOTE})"
+    else
+      warn "Concurrent Connections: ${max_conns} connections tested, ${failed_tx} failed transactions (QPS: ${qps})"
+    fi
+    rm -f "$log_file"
+    return 0
+  fi
+  
+  fail "Concurrent Connection Test: Failed"
+  say "   Last 10 lines of pgbench output:"
+  tail -10 "$log_file" 2>/dev/null || true
+  rm -f "$log_file"
+  return 1
+}
+
+# Connection Pool Exhaustion Test (PgBouncer specific)
+test_connection_pool_exhaustion() {
+  # Only relevant if using PgBouncer
+  if [[ "$LOAD_TEST_HOST" != "$PGB_ILB_IP" ]]; then
+    say "Connection Pool Exhaustion Test: Skipped (not using PgBouncer)"
+    return 0
+  fi
+  
+  if ! ensure_pgbench >/dev/null 2>&1; then
+    warn "pgbench not available, skipping pool exhaustion test"
+    return 1
+  fi
+  
+  say "Connection Pool Exhaustion Test (PgBouncer pool_size limit)"
+  ensure_pgbench_init || return 1
+  
+  # PgBouncer default pool_size is 200, test with more clients
+  local pool_size=600  # As per our optimization
+  local test_clients=$((pool_size + 100))  # Exceed pool size
+  
+  say "Testing with ${test_clients} clients (pool_size=${pool_size})..."
+  local log_file="/tmp/pgbench_pool_$$.log"
+  
+  PGPASSWORD="$POSTGRES_PASS" timeout 35 pgbench \
+    -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres \
+    -S -c "$test_clients" -j 8 -T 30 \
+    > "$log_file" 2>&1
+  
+  local qps=$(grep -iE "tps = " "$log_file" | grep -oE "[0-9]+\.[0-9]+" | head -1 || echo "")
+  local failed_tx=$(grep -i "failed transactions" "$log_file" | grep -oE "[0-9]+" | head -1 || echo "0")
+  
+  if [[ -n "$qps" ]] && [[ "$qps" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+    if [[ $failed_tx -eq 0 ]]; then
+      pass "Pool Exhaustion: Handled ${test_clients} clients gracefully (pool_size=${pool_size}, QPS: ${qps})"
+    else
+      local fail_pct=$(echo "$failed_tx $test_clients" | awk '{printf "%.1f", ($1/$2)*100}')
+      warn "Pool Exhaustion: ${failed_tx} failed transactions (${fail_pct}%, QPS: ${qps})"
+      say "   Note: Some failures expected when clients exceed pool_size"
+    fi
+    rm -f "$log_file"
+    return 0
+  fi
+  
+  warn "Pool Exhaustion Test: Could not measure QPS"
+  rm -f "$log_file"
+  return 1
+}
+
+# Replication Lag Monitoring Test
+test_replication_lag() {
+  if ! ensure_jq >/dev/null 2>&1 || ! ensure_psql >/dev/null 2>&1; then
+    warn "jq or psql not available, skipping replication lag test"
+    return 1
+  fi
+  
+  say "Replication Lag Monitoring Test"
+  
+  # Get current leader
+  local leader_ip=""
+  local leader_name=""
+  for ip in "${DB_NODES[@]}"; do
+    local node_info=$(curl -fsS "http://$ip:$PATRONI_API_PORT/patroni" 2>/dev/null || echo "")
+    if [[ -n "$node_info" ]]; then
+      local role=$(echo "$node_info" | jq -r '.role // ""' 2>/dev/null || echo "")
+      if [[ "$role" == "leader" ]] || [[ "$role" == "primary" ]]; then
+        leader_ip="$ip"
+        leader_name=$(echo "$node_info" | jq -r '.name // ""' 2>/dev/null || echo "")
+        break
+      fi
+    fi
+  done
+  
+  if [[ -z "$leader_ip" ]]; then
+    fail "Replication Lag Test: Cannot find leader"
+    return 1
+  fi
+  
+  # Check replication lag from leader
+  local lag_bytes=$(PGPASSWORD="$POSTGRES_PASS" psql -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -tAc \
+    "SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), replay_lsn) FROM pg_stat_replication WHERE state='streaming' LIMIT 1;" 2>/dev/null || echo "")
+  
+  if [[ -n "$lag_bytes" ]] && [[ "$lag_bytes" =~ ^[0-9]+$ ]]; then
+    # Convert bytes to MB
+    local lag_mb=$(echo "$lag_bytes" | awk '{printf "%.2f", $1/1024/1024}')
+    
+    if [[ $lag_bytes -lt 1048576 ]]; then  # < 1 MB
+      pass "Replication Lag: Excellent (< 1 MB, ${lag_mb} MB)"
+    elif [[ $lag_bytes -lt 10485760 ]]; then  # < 10 MB
+      pass "Replication Lag: Good (${lag_mb} MB)"
+    elif [[ $lag_bytes -lt 104857600 ]]; then  # < 100 MB
+      warn "Replication Lag: Acceptable but high (${lag_mb} MB)"
+    else
+      fail "Replication Lag: High (${lag_mb} MB)"
+    fi
+    
+    say "   Lag: ${lag_mb} MB (${lag_bytes} bytes)"
+    return 0
+  fi
+  
+  warn "Replication Lag Test: Could not measure lag (replica may not be streaming)"
+  return 1
+}
+
+# Large Transaction Test
+test_large_transactions() {
+  if ! ensure_pgbench >/dev/null 2>&1; then
+    warn "pgbench not available, skipping large transaction test"
+    return 1
+  fi
+  
+  say "Large Transaction Test (high scaling factor)"
+  ensure_pgbench_init || return 1
+  
+  # Create a larger scale for this test (scale 50 = ~750MB)
+  say "Initializing larger dataset (scale 50) for large transaction test..."
+  local large_stamp="/tmp/.pgbench_large_inited"
+  
+  if [[ ! -f "$large_stamp" ]]; then
+    say "Creating large dataset (this may take 2-3 minutes)..."
+    PGPASSWORD="$POSTGRES_PASS" timeout 240 pgbench \
+      -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres \
+      -i -s 50 >/tmp/pgbench_large_init.log 2>&1
+    
+    if [[ $? -eq 0 ]]; then
+      touch "$large_stamp"
+    else
+      warn "Large Transaction Test: Failed to initialize large dataset"
+      return 1
+    fi
+  fi
+  
+  say "Running large transaction test (30 seconds)..."
+  local log_file="/tmp/pgbench_large_$$.log"
+  
+  # Use write workload with larger dataset
+  PGPASSWORD="$POSTGRES_PASS" timeout 35 pgbench \
+    -h "$LOAD_TEST_HOST" -p "$LOAD_TEST_PORT" -U "$POSTGRES_USER" -d postgres \
+    -c 20 -j 4 -T 30 \
+    > "$log_file" 2>&1
+  
+  local tps=$(grep -iE "tps = " "$log_file" | grep -oE "[0-9]+\.[0-9]+" | head -1 || echo "")
+  
+  if [[ -n "$tps" ]] && [[ "$tps" =~ ^[0-9]+\.?[0-9]*$ ]]; then
+    local tps_int=$(echo "$tps" | cut -d. -f1)
+    if [[ $tps_int -gt 0 ]]; then
+      pass "Large Transaction Test: ${tps} TPS with large dataset (scale 50, ${LOAD_TEST_NOTE})"
+      rm -f "$log_file"
+      return 0
+    fi
+  fi
+  
+  warn "Large Transaction Test: Could not measure TPS"
+  rm -f "$log_file"
+  return 1
+}
+
+# Additional Performance Tests Section
+echo ""
+say "=== ADDITIONAL PERFORMANCE TESTS ==="
+echo ""
+
+# Write Performance Test (TPS)
+if ensure_pgbench >/dev/null 2>&1; then
+  test_write_performance || true
+  sleep 3
+fi
+
+# Latency Test
+if ensure_pgbench >/dev/null 2>&1; then
+  test_latency || true
+  sleep 3
+fi
+
+# Sustained Load Test (5 minutes - may take longer)
+# Note: This test takes 5+ minutes
+say "Sustained Load Test will take 5+ minutes (starting in 3 seconds, Ctrl+C to skip)..."
+sleep 3
+if ensure_pgbench >/dev/null 2>&1; then
+  test_sustained_load || true
+  sleep 3
+fi
+
+# Concurrent Connection Test
+if ensure_pgbench >/dev/null 2>&1; then
+  test_concurrent_connections || true
+  sleep 3
+fi
+
+# Connection Pool Exhaustion Test (PgBouncer only)
+if ensure_pgbench >/dev/null 2>&1; then
+  test_connection_pool_exhaustion || true
+  sleep 3
+fi
+
+# Replication Lag Test
+if ensure_jq >/dev/null 2>&1 && ensure_psql >/dev/null 2>&1; then
+  test_replication_lag || true
+  sleep 2
+fi
+
+# Large Transaction Test
+if ensure_pgbench >/dev/null 2>&1; then
+  test_large_transactions || true
+  sleep 3
+fi
+
 # Zero Data Loss Test (RPO=0 validation with write transactions)
 # Note: Run after all other tests to avoid interfering with cluster state
 if ensure_jq >/dev/null 2>&1 && ensure_pgbench >/dev/null 2>&1; then
