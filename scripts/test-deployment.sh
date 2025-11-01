@@ -221,15 +221,27 @@ else
 fi
 
 say "Check leader"
-LEADER=$(echo "$CLUSTER_JSON" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || true)
+LEADER=$(echo "$CLUSTER_JSON" | jq -r '.members[] | select(.role=="leader" or .role=="primary") | .name' 2>/dev/null || true)
 if [[ -n "$LEADER" ]]; then
   pass "Leader found: $LEADER"
 else
-  fail "Leader not found"
+  # Fallback: try to get leader from individual node APIs
+  for ip in "${DB_NODES[@]}"; do
+    node_role=$(curl -fsS "http://$ip:$PATRONI_API_PORT/patroni" 2>/dev/null | jq -r '.role // ""' || true)
+    node_name=$(curl -fsS "http://$ip:$PATRONI_API_PORT/patroni" 2>/dev/null | jq -r '.member // .name // ""' || true)
+    if [[ "$node_role" == "leader" ]] || [[ "$node_role" == "primary" ]]; then
+      LEADER="$node_name"
+      pass "Leader found via API: $LEADER (on $ip)"
+      break
+    fi
+  done
+  if [[ -z "$LEADER" ]]; then
+    fail "Leader not found"
+  fi
 fi
 
 say "Check replicas"
-REPL_COUNT=$(echo "$CLUSTER_JSON" | jq '[.members[] | select(.role!="leader")] | length' 2>/dev/null || echo 0)
+REPL_COUNT=$(echo "$CLUSTER_JSON" | jq '[.members[] | select(.role!="leader" and .role!="primary")] | length' 2>/dev/null || echo 0)
 if [[ "$REPL_COUNT" -ge 1 ]]; then
   pass "Found $REPL_COUNT replica(s)"
 else
@@ -309,8 +321,8 @@ measure_failover() {
     for ip in "${DB_NODES[@]}"; do
       out=$(curl -fsS "http://$ip:$PATRONI_API_PORT/cluster" 2>/dev/null || true)
       [[ -z "$out" ]] && continue
-      l=$(echo "$out" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null || echo "")
-      c=$(echo "$out" | jq -r '.members[] | select(.role!="leader" and ((.role=="sync_standby") or (.state=="running"))) | .name' 2>/dev/null | head -1 || echo "")
+      l=$(echo "$out" | jq -r '.members[] | select(.role=="leader" or .role=="primary") | .name' 2>/dev/null || echo "")
+      c=$(echo "$out" | jq -r '.members[] | select(.role!="leader" and .role!="primary" and ((.role=="sync_standby") or (.state=="running"))) | .name' 2>/dev/null | head -1 || echo "")
       if [[ -n "$l" && -n "$c" ]]; then leader="$l"; candidate="$c"; break 2; fi
     done
     sleep 2
