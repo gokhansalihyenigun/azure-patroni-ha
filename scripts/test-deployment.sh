@@ -893,12 +893,22 @@ profile_failover_qps() {
   fi
 }
 
-# Approximate client/job settings for 2k/3k/4k/8k QPS targets (SELECT-only queries); adjust per VM size.
+# Approximate client/job settings for 2k/3k/4k/8k QPS targets (SELECT-only queries)
+# Note: These are starting points. Real achieved QPS depends on system capacity.
+# Client count should scale with target QPS, jobs can be lower (I/O bound).
+# PgBouncer connection pooling may limit effective concurrent connections.
 if ensure_pgbench; then
-  profile_failover_qps 2000 64 16 || true
-  profile_failover_qps 3000 96 24 || true
-  profile_failover_qps 4000 128 32 || true
-  profile_failover_qps 8000 256 64 || true
+  # 2000 QPS: Moderate load - fewer clients/jobs
+  profile_failover_qps 2000 32 8 || true
+  sleep 5  # Brief pause between tests
+  # 3000 QPS: Medium load
+  profile_failover_qps 3000 48 12 || true
+  sleep 5
+  # 4000 QPS: Higher load
+  profile_failover_qps 4000 64 16 || true
+  sleep 5
+  # 8000 QPS: High load - more clients to stress test
+  profile_failover_qps 8000 128 32 || true
 else
   say "pgbench not available, skipping QPS profile failover tests"
 fi
