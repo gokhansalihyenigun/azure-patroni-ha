@@ -616,8 +616,42 @@ test_zero_data_loss() {
   say "Verifying transaction integrity after failover..."
   
   # Wait a bit for replication to stabilize after failover
-  say "Waiting 3s for replication to stabilize after failover..."
-  sleep 3
+  say "Waiting for replication to stabilize after failover (checking sync state)..."
+  local sync_wait_count=0
+  local sync_state=""
+  # Wait up to 15 seconds for sync state to become "sync"
+  for i in $(seq 1 15); do
+    # Find current leader
+    local current_leader_ip=""
+    for ip in "${DB_NODES[@]}"; do
+      local out=$(curl -fsS "http://$ip:$PATRONI_API_PORT/cluster" 2>/dev/null || true)
+      if [[ -n "$out" ]]; then
+        local current_leader=$(echo "$out" | jq -r '.members[] | select(.role=="leader") | .name' 2>/dev/null | head -1)
+        if [[ "$current_leader" == "pgpatroni-1" ]]; then
+          current_leader_ip="${DB_NODES[0]}"
+        elif [[ "$current_leader" == "pgpatroni-2" ]]; then
+          current_leader_ip="${DB_NODES[1]}"
+        fi
+        [[ -n "$current_leader_ip" ]] && break
+      fi
+    done
+    
+    # Check sync state from primary or ILB
+    if [[ -n "$current_leader_ip" ]]; then
+      sync_state=$(PGPASSWORD="$POSTGRES_PASS" psql -h "$current_leader_ip" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -tAc \
+        "SELECT sync_state FROM pg_stat_replication WHERE client_addr IS NOT NULL LIMIT 1;" 2>/dev/null || echo "")
+    fi
+    if [[ -z "$sync_state" ]]; then
+      sync_state=$(PGPASSWORD="$POSTGRES_PASS" psql -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -tAc \
+        "SELECT sync_state FROM pg_stat_replication WHERE client_addr IS NOT NULL LIMIT 1;" 2>/dev/null || echo "")
+    fi
+    
+    if [[ "$sync_state" == "sync" ]]; then
+      say "   Sync state confirmed as 'sync' after ${i}s"
+      break
+    fi
+    sleep 1
+  done
   
   # Find current leader (after failover)
   local current_leader=""
