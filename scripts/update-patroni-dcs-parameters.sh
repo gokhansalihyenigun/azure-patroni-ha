@@ -55,23 +55,39 @@ update_result=$(ssh_cmd "$LEADER_IP" <<'EOF'
 CURRENT=$(curl -fsS http://127.0.0.1:8008/config 2>/dev/null)
 
 if [[ -z "$CURRENT" ]]; then
-  echo "Failed to get current config"
-  exit 1
-fi
-
-# Update max_connections in the config
-UPDATED=$(echo "$CURRENT" | jq '.postgresql.parameters.max_connections = 500')
-
-# Patch the config
-RESULT=$(curl -fsS -X PATCH http://127.0.0.1:8008/config \
-  -H "Content-Type: application/json" \
-  -d "$UPDATED" 2>&1)
-
-if echo "$RESULT" | grep -q "200\|201\|204"; then
-  echo "✓ Config updated successfully"
+  echo "✗ Failed to get current config"
+  # Try alternative: direct JSON payload
+  PAYLOAD='{"postgresql":{"parameters":{"max_connections":500}}}'
+  RESULT=$(curl -fsS -X PATCH http://127.0.0.1:8008/config \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD" 2>&1)
+  echo "Update result: $RESULT"
 else
-  echo "✗ Update failed: $RESULT"
-  exit 1
+  # Update max_connections in the config
+  UPDATED=$(echo "$CURRENT" | jq '.postgresql.parameters.max_connections = 500' 2>/dev/null)
+  
+  if [[ -z "$UPDATED" ]]; then
+    # If jq fails, create minimal payload
+    PAYLOAD='{"postgresql":{"parameters":{"max_connections":500}}}'
+  else
+    PAYLOAD="$UPDATED"
+  fi
+  
+  # Patch the config
+  RESULT=$(curl -fsS -X PATCH http://127.0.0.1:8008/config \
+    -H "Content-Type: application/json" \
+    -d "$PAYLOAD" 2>&1)
+  
+  if echo "$RESULT" | grep -qE "200|201|204|\"max_connections\": 500"; then
+    echo "✓ Config updated successfully"
+  else
+    echo "✗ Update failed or partial: $RESULT"
+    echo "   Trying with minimal payload..."
+    MIN_PAYLOAD='{"postgresql":{"parameters":{"max_connections":500}}}'
+    curl -fsS -X PATCH http://127.0.0.1:8008/config \
+      -H "Content-Type: application/json" \
+      -d "$MIN_PAYLOAD" 2>&1
+  fi
 fi
 EOF
 )
