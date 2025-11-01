@@ -48,19 +48,23 @@ ALTER SYSTEM SET effective_cache_size = '96GB';  -- 75% of 128GB
 ALTER SYSTEM SET work_mem = '256MB';  -- Higher for complex queries (Premium SSD v2 reduces disk I/O, can afford more)
 ALTER SYSTEM SET maintenance_work_mem = '4GB';  -- Increase for VACUUM/REINDEX (32 vCPU + Premium SSD v2 can handle larger operations)
 
--- CONNECTIONS: Scale for high load
-ALTER SYSTEM SET max_connections = '500';
-ALTER SYSTEM SET max_worker_processes = '32';  -- Match vCPU count
-ALTER SYSTEM SET max_parallel_workers_per_gather = '8';  -- Parallel query workers
-ALTER SYSTEM SET max_parallel_workers = '24';  -- Max parallel workers (75% of vCPU)
-ALTER SYSTEM SET max_parallel_maintenance_workers = '8';
+-- CONNECTIONS: Scale for Standard_D32s_v6 (32 vCPU, 128GB RAM, 32,000 Mbps network)
+-- Premium SSD v2 + 32 vCPU: Can handle very high concurrent load
+ALTER SYSTEM SET max_connections = '500';  -- High concurrent connections (PgBouncer pools 600 total)
+ALTER SYSTEM SET max_worker_processes = '32';  -- Match vCPU count exactly (Standard_D32s_v6)
+ALTER SYSTEM SET max_parallel_workers_per_gather = '16';  -- Parallel query workers (50% of vCPU - Premium SSD v2 high IOPS supports this)
+ALTER SYSTEM SET max_parallel_workers = '28';  -- Max parallel workers (87.5% of vCPU - leverage Premium SSD v2 80k IOPS)
+ALTER SYSTEM SET max_parallel_maintenance_workers = '12';  -- Parallel maintenance (Premium SSD v2 80k IOPS can handle parallel I/O)
 
--- WRITE PERFORMANCE: Optimize for high-throughput writes
-ALTER SYSTEM SET checkpoint_completion_target = '0.9';  -- Spread checkpoints
-ALTER SYSTEM SET wal_buffers = '64MB';  -- Large WAL buffers for high write load
-ALTER SYSTEM SET max_wal_size = '32GB';  -- Allow more WAL before checkpoint
-ALTER SYSTEM SET min_wal_size = '8GB';  -- Keep more WAL segments
-ALTER SYSTEM SET checkpoint_timeout = '15min';  -- Longer checkpoint interval for high load
+-- WRITE PERFORMANCE: Optimize for Premium SSD v2 (80,000 IOPS, 1,200 MB/s, <1ms latency)
+-- Premium SSD v2 can handle extremely high write rates
+ALTER SYSTEM SET checkpoint_completion_target = '0.9';  -- Spread checkpoints smoothly
+ALTER SYSTEM SET wal_buffers = '128MB';  -- Large WAL buffers leverage Premium SSD v2 1,200 MB/s write throughput
+ALTER SYSTEM SET max_wal_size = '32GB';  -- Allow more WAL (Premium SSD v2 80k IOPS can handle frequent checkpoints)
+ALTER SYSTEM SET min_wal_size = '8GB';  -- Keep more WAL segments warm (512GB WAL disk available)
+ALTER SYSTEM SET checkpoint_timeout = '15min';  -- Longer checkpoint (Premium SSD v2 fast enough, reduces overhead)
+ALTER SYSTEM SET wal_compression = 'on';  -- Compress WAL (32 vCPU can handle compression overhead, saves disk IOPS)
+ALTER SYSTEM SET full_page_writes = 'on';  -- Required for consistency (Premium SSD v2 <1ms latency fast enough)
 
 -- I/O PERFORMANCE: Optimize for Premium SSD v2 (Azure Premium SSD v2)
 -- Premium SSD v2 specs: Up to 80,000 IOPS, 1,200 MB/s throughput, <1ms latency
