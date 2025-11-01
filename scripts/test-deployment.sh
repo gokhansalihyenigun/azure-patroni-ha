@@ -687,17 +687,41 @@ test_zero_data_loss() {
       "SELECT sync_state FROM pg_stat_replication WHERE client_addr IS NOT NULL LIMIT 1;" 2>/dev/null || echo "")
   fi
   
-  # Count total transactions attempted
-  local total_tx=$(grep -iE "number of transactions|transactions:" "$log" | \
-    grep -oE '[0-9]+' | head -1 || echo "0")
+  # Count total transactions attempted - pgbench write workload output format
+  local total_tx=""
+  # Strategy 1: Look for "number of transactions actually processed"
+  total_tx=$(grep -iE "number of transactions.*actually processed|transactions.*actually processed" "$log" | \
+    grep -oE '[0-9]+' | head -1)
+  # Strategy 2: Look for "number of transactions"
+  if [[ -z "$total_tx" ]]; then
+    total_tx=$(grep -iE "^number of transactions" "$log" | grep -oE '[0-9]+' | head -1)
+  fi
+  # Strategy 3: Look for TPS line (contains transaction count)
+  if [[ -z "$total_tx" ]]; then
+    total_tx=$(grep -iE "^tps.*including" "$log" | grep -oE '[0-9]+' | head -1)
+  fi
+  # Strategy 4: Extract from final summary
+  if [[ -z "$total_tx" ]]; then
+    total_tx=$(tail -20 "$log" | grep -oE '[0-9]+\s+transactions' | grep -oE '^[0-9]+' | head -1)
+  fi
+  # Default to "unknown" if we can't parse it
+  if [[ -z "$total_tx" ]]; then
+    total_tx="unknown"
+  fi
   
   # Check database consistency (all committed transactions should be visible)
   local db_consistency=$(PGPASSWORD="$POSTGRES_PASS" psql -h "$DB_ILB_IP" -p "$DB_PORT" -U "$POSTGRES_USER" -d postgres -tAc \
     "SELECT COUNT(*) FROM pgbench_accounts WHERE abalance >= 0;" 2>/dev/null || echo "0")
   
+  # Debug: Show pgbench log summary if transaction count is unknown
+  if [[ "$total_tx" == "unknown" ]]; then
+    say "   Debug: pgbench log summary (last 10 lines):"
+    tail -10 "$log" 2>/dev/null | sed 's/^/      /' || true
+  fi
+  
   if [[ "$sync_state" == "sync" ]]; then
     pass "Zero Data Loss Test: Sync replication confirmed (RPO=0), Failover: ${failover_dur}s"
-    echo "   Sync state: $sync_state | Database consistency: OK | Transactions: ${total_tx}"
+    echo "   Sync state: $sync_state | Database consistency: OK | Transactions processed: ${total_tx}"
     return 0
   else
     # If sync_state is not "sync", but replication is working, still pass (async might be acceptable in some configs)
@@ -707,7 +731,7 @@ test_zero_data_loss() {
     if [[ "$has_replication" -gt 0 ]]; then
       say "Note: Sync state is '${sync_state:-unknown}', but replication is active"
       pass "Zero Data Loss Test: Replication active (state: ${sync_state:-unknown}), Failover: ${failover_dur}s"
-      echo "   Replication active: Yes | Database consistency: OK | Transactions: ${total_tx}"
+      echo "   Replication active: Yes | Database consistency: OK | Transactions processed: ${total_tx}"
       return 0
     else
       fail "Zero Data Loss Test: No active replication found (sync_state: ${sync_state:-unknown})"
