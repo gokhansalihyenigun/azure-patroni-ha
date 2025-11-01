@@ -94,12 +94,16 @@ ALTER SYSTEM SET log_checkpoints = 'on';
 ALTER SYSTEM SET log_lock_waits = 'on';
 ALTER SYSTEM SET log_autovacuum_min_duration = '1000';  -- Log slow autovacuum
 
--- Reload configuration
+-- Reload configuration (most settings take effect without restart)
 SELECT pg_reload_conf();
 
--- Verify critical settings
-SELECT name, setting, unit FROM pg_settings 
-WHERE name IN ('shared_buffers', 'effective_cache_size', 'work_mem', 'synchronous_commit', 'synchronous_standby_names')
+-- Note: Some settings like shared_buffers require restart, but we're using ALTER SYSTEM
+-- which will persist. The new values will take effect after next PostgreSQL restart.
+-- Patroni will handle restart if needed when config changes.
+
+-- Verify critical settings (shows current values, some may need restart to take effect)
+SELECT name, setting, unit, context FROM pg_settings 
+WHERE name IN ('shared_buffers', 'effective_cache_size', 'work_mem', 'synchronous_commit', 'synchronous_standby_names', 'max_connections', 'max_parallel_workers')
 ORDER BY name;
 SQL
   
@@ -392,11 +396,12 @@ main() {
     sleep 2
   done
   
-  say "Waiting 10 seconds for services to stabilize..."
-  sleep 10
+  say "Waiting 15 seconds for services to stabilize after restarts..."
+  sleep 15
   
-  # Verify services
+  # Verify services are healthy
   say "Verifying service health..."
+  local all_healthy=true
   for host in "${DB_NODES[@]}"; do
     if ssh_cmd "$host" "systemctl is-active --quiet patroni && systemctl is-active --quiet etcd"; then
       pass "Services healthy on $host"
