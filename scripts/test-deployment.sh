@@ -18,10 +18,11 @@ PGBOUNCER_PASS="StrongPass123"
 
 # Use PgBouncer for load tests? (true = realistic scenario, false = direct DB)
 # 
-# IMPORTANT: When using curl | bash, you MUST use export:
-#   export USE_PGBOUNCER=true; curl ... | bash
+# IMPORTANT: When using curl | sudo bash, you MUST use sudo -E to preserve environment:
+#   export USE_PGBOUNCER=true; curl ... | sudo -E bash
 # 
-# Alternative methods (both work):
+# Alternative methods (all work):
+#   export USE_PGBOUNCER=true; curl ... | sudo -E bash  (recommended)
 #   curl ... | bash -c 'USE_PGBOUNCER=true bash'
 #   bash <(curl ...) USE_PGBOUNCER=true
 
@@ -196,8 +197,10 @@ if [[ "$USE_PGBOUNCER" == "true" ]] || [[ "$USE_PGBOUNCER" == "yes" ]] || [[ "$U
   say "Load tests will use PgBouncer (realistic scenario: ${LOAD_TEST_HOST}:${LOAD_TEST_PORT})"
 else
   say "Load tests will use direct DB connection (${LOAD_TEST_HOST}:${LOAD_TEST_PORT})"
-  say "   To test via PgBouncer, run: USE_PGBOUNCER=true bash <(curl ...)"
-  say "   Or: export USE_PGBOUNCER=true; curl ... | bash"
+  say "   To test via PgBouncer, run:"
+  say "     export USE_PGBOUNCER=true; curl ... | sudo -E bash"
+  say "   Or: bash <(curl ...) USE_PGBOUNCER=true"
+  say "   Note: sudo -E is required to preserve environment variables"
 fi
 
 ensure_jq || say "jq not present; JSON outputs will be raw."
