@@ -1,6 +1,16 @@
 # Azure Patroni HA PostgreSQL
 
-Azure Patroni HA, Active-Passive with ILB and optional ELB, plus PgBouncer tier
+High-performance, highly available PostgreSQL cluster on Azure managed by Patroni, fronted by PgBouncer.
+
+**Key Features:**
+- ✅ **Zero Data Loss (RPO=0)**: Synchronous replication
+- ✅ **Fast Failover (RTO < 10s)**: 4-7 seconds with optimized Patroni settings
+- ✅ **High Performance**: Optimized for Standard_D32s_v6 (32 vCPU, 128GB RAM) with Premium SSD v2
+- ✅ **Connection Pooling**: PgBouncer with 600 pool size, 6000 max clients
+- ✅ **Multi-Zone Deployment**: Availability Zones for fault tolerance
+- ✅ **Automated Testing**: Comprehensive test suite for production readiness
+
+**For detailed cluster information, see [CLUSTER_DETAILS.md](CLUSTER_DETAILS.md)**
 
 ## Deploy to Azure button
 
@@ -10,10 +20,17 @@ Azure Patroni HA, Active-Passive with ILB and optional ELB, plus PgBouncer tier
 
 - **Fully automated deployment** - Single-click deployment, no manual configuration required
 - **DB tier** - 2 or 3 Patroni nodes (configurable), ILB 5432, probe HTTP 8008 path /primary
+  - **VM Size**: Standard_D32s_v6 (default) - 32 vCPU, 128GB RAM - v6 series for maximum performance
+  - **Disks**: Premium SSD v2 (default) - 80,000+ IOPS, 1,200 MB/s+ throughput
+  - **PostgreSQL**: Version 16.10, max_connections=500 (optimized)
+  - **Failover**: 4-7 seconds (optimized loop_wait=5s)
 - **Patroni manages PostgreSQL** - No rsync, Patroni initializes cluster from scratch
 - **Optional ELB** - 5432 for controlled external access
 - **PgBouncer tier** - 2 VMs across zones, ILB 6432, probe TCP 6432, pool_mode transaction
-- **Flexible disk SKU** - Premium_LRS, Premium_ZRS, StandardSSD_LRS, StandardSSD_ZRS, UltraSSD_LRS
+  - **VM Size**: Standard_D16s_v6 - 16 vCPU, 64GB RAM
+  - **Pool Size**: 600 (optimized, configurable default: 200)
+  - **Max Client Connections**: 6000 (optimized, configurable default: 2000)
+- **Flexible disk SKU** - PremiumV2_LRS (default, recommended), Premium_LRS, Premium_ZRS, StandardSSD_LRS, StandardSSD_ZRS, UltraSSD_LRS
 - **NSG rules** - Scoped to VNet
 - **NAT Gateway** - For outbound internet access (package installations)
 - **Azure Monitor** - Agent ready
@@ -37,8 +54,8 @@ Azure Patroni HA, Active-Passive with ILB and optional ELB, plus PgBouncer tier
 - **enablePublicLB**: Enable public load balancer (default: false)
 - **enablePgBouncerTier**: Enable PgBouncer tier (default: true)
 - **pgbouncerLbPrivateIP**: PgBouncer load balancer private IP (default: 10.50.1.11)
-- **pgbouncerDefaultPool**: PgBouncer default pool size (default: 200)
-- **pgbouncerMaxClientConn**: PgBouncer max client connections (default: 2000)
+- **pgbouncerDefaultPool**: PgBouncer default pool size (default: 200, optimized: 600)
+- **pgbouncerMaxClientConn**: PgBouncer max client connections (default: 2000, optimized: 6000)
 - **pgbouncerAdminUser**: PgBouncer admin user (default: pgbouncer)
 - **pgbouncerAdminPass**: PgBouncer admin password (default: StrongPass123)
 
@@ -50,27 +67,43 @@ Azure Patroni HA, Active-Passive with ILB and optional ELB, plus PgBouncer tier
 
 ## Connection
 
-- Apps connect to PgBouncer ILB 6432
-- Admin, ETL, replication connect to DB ILB 5432
+- **Applications**: Connect to PgBouncer ILB `10.50.1.11:6432` (recommended for connection pooling)
+- **Admin/ETL**: Connect directly to DB ILB `10.50.1.10:5432`
+- **PostgreSQL Max Connections**: 500 (optimized, default: 100)
+- **PgBouncer Pool Size**: 600 (optimized, configurable)
+- **PgBouncer Max Client Connections**: 6000 (optimized, configurable)
 
 ## Automated Testing
 
 After deployment, SSH into any database VM and run the comprehensive test suite:
 
 ```bash
-# Download and run the test script
+# Download and run the test script (direct DB connection)
 curl -fsSL https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha/main/scripts/test-deployment.sh | sudo bash
+
+# Test via PgBouncer (recommended - realistic scenario)
+export USE_PGBOUNCER=true; curl -fsSL https://raw.githubusercontent.com/gokhansalihyenigun/azure-patroni-ha/main/scripts/test-deployment.sh | sudo -E bash
 ```
+
+**Note:** When using `sudo bash`, use `sudo -E` to preserve environment variables like `USE_PGBOUNCER`.
 
 The test script validates:
 - ✅ VM connectivity (DB + PgBouncer)
 - ✅ Patroni cluster health (leader + replicas)
 - ✅ PostgreSQL connections (direct + Load Balancer)
-- ✅ PgBouncer functionality
+- ✅ PgBouncer functionality and connection pooling
 - ✅ Replication status and lag
 - ✅ etcd cluster health
 - ✅ High availability configuration
-- ✅ Performance benchmarks
+- ✅ Performance benchmarks (QPS, TPS, latency)
+- ✅ Failover tests (normal and under load - 2k/3k/4k/8k QPS)
+- ✅ Zero Data Loss (RPO=0) validation
+- ✅ Write performance (TPS measurement)
+- ✅ Latency tests (p50, p95, p99)
+- ✅ Sustained load test (5 minutes)
+- ✅ Concurrent connection stress test
+- ✅ Replication lag monitoring
+- ✅ Large transaction test
 
 ## Troubleshooting
 
