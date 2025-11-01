@@ -35,33 +35,45 @@ for host in "${DB_NODES[@]}"; do
 # Backup Patroni config
 cp /etc/patroni/patroni.yml /etc/patroni/patroni.yml.backup.$(date +%s) 2>/dev/null || true
 
-# Check if postgresql.parameters section exists
-if grep -q "postgresql:" /etc/patroni/patroni.yml && grep -A5 "postgresql:" /etc/patroni/patroni.yml | grep -q "parameters:"; then
-  # parameters section exists under postgresql
-  # Remove old max_connections if exists
-  sed -i '/^[[:space:]]*max_connections:/d' /etc/patroni/patroni.yml
-  
-  # Add max_connections after parameters: line
-  sed -i '/parameters:/a\        max_connections: 500' /etc/patroni/patroni.yml
-  
-  # If parameters: is under bootstrap.dcs.postgresql.parameters, also fix that
-  if grep -q "bootstrap:" /etc/patroni/patroni.yml; then
-    # Remove from bootstrap section if exists
-    sed -i '/bootstrap:/,/^[[:space:]]*postgresql:/{ /max_connections:/d; }' /etc/patroni/patroni.yml
+# Use Python for safe YAML editing (more reliable than sed)
+python3 <<'PYTHON'
+import yaml
+import sys
+import shutil
+
+try:
+    with open('/etc/patroni/patroni.yml', 'r') as f:
+        config = yaml.safe_load(f)
     
-    # Add to bootstrap.dcs.postgresql.parameters
-    if grep -A20 "bootstrap:" /etc/patroni/patroni.yml | grep -q "parameters:"; then
-      sed -i '/bootstrap:/,/parameters:/{ /parameters:/a\            max_connections: 500
-}' /etc/patroni/patroni.yml 2>/dev/null || true
-    fi
-  fi
-else
-  # No postgresql.parameters section, need to add it
-  if grep -q "^postgresql:" /etc/patroni/patroni.yml; then
-    # Add parameters section under postgresql
-    sed -i '/^postgresql:/a\    parameters:\n        max_connections: 500' /etc/patroni/patroni.yml
-  fi
-fi
+    # Fix postgresql.parameters section
+    if 'postgresql' not in config:
+        config['postgresql'] = {}
+    if 'parameters' not in config['postgresql']:
+        config['postgresql']['parameters'] = {}
+    
+    # Set max_connections
+    config['postgresql']['parameters']['max_connections'] = 500
+    
+    # Also update bootstrap.dcs.postgresql.parameters if exists
+    if 'bootstrap' in config and 'dcs' in config['bootstrap']:
+        if 'postgresql' not in config['bootstrap']['dcs']:
+            config['bootstrap']['dcs']['postgresql'] = {}
+        if 'parameters' not in config['bootstrap']['dcs']['postgresql']:
+            config['bootstrap']['dcs']['postgresql']['parameters'] = {}
+        config['bootstrap']['dcs']['postgresql']['parameters']['max_connections'] = 500
+    
+    # Write back
+    with open('/etc/patroni/patroni.yml', 'w') as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    
+    print("✓ Config updated successfully")
+except Exception as e:
+    print(f"✗ Error: {e}")
+    sys.exit(1)
+PYTHON
+
+# Verify YAML syntax
+python3 -c "import yaml; yaml.safe_load(open('/etc/patroni/patroni.yml'))" && echo "✓ YAML syntax valid" || echo "✗ YAML syntax error!"
 
 # Verify
 echo "=== Patroni config (postgresql.parameters section) ==="
