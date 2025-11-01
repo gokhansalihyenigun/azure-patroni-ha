@@ -754,6 +754,21 @@ test_zero_data_loss() {
   if [[ -z "$total_tx" ]] || [[ "$total_tx" == "0" ]]; then
     total_tx=$(grep -iE "transaction" "$log" | grep -oE '[0-9]{3,}' | head -1)
   fi
+  
+  # If still no transactions found, check if it's due to failover read-only errors
+  # During failover, some transactions may fail with "read-only transaction" errors
+  # This is expected - we're testing RPO=0 (zero data loss), not transaction success rate
+  if [[ -z "$total_tx" ]] || [[ "$total_tx" == "0" ]]; then
+    if grep -qiE "read-only transaction|cannot execute.*in a read-only" "$log"; then
+      say "   Note: Some transactions failed during failover (read-only errors), this is expected"
+      say "   RPO=0 test focuses on data consistency after failover, not transaction success rate"
+      say "   During failover, connections to the old primary may receive read-only errors"
+      total_tx="N/A (failover-related read-only errors expected)"
+    else
+      total_tx="unknown"
+    fi
+  fi
+  fi
   # Default to "unknown" if we still can't parse it
   if [[ -z "$total_tx" ]] || [[ "$total_tx" == "0" ]]; then
     total_tx="unknown"
