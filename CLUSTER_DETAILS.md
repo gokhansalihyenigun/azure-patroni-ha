@@ -787,13 +787,5 @@ Yeni bir deployment yapmak için:
 
 ---
 
-**Saygılarımızla,**
-
-[Adınız]  
-[Pozisyon]  
-[İletişim Bilgileri]
-
----
-
 *Bu dokümantasyon Azure Patroni HA PostgreSQL deployment'ı için hazırlanmıştır. Herhangi bir sorunuz veya desteğe ihtiyacınız olduğunda lütfen bizimle iletişime geçin.*
 
