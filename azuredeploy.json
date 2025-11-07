@@ -398,7 +398,7 @@
                 "id": "[resourceId('Microsoft.Network/loadBalancers/frontendIPConfigurations', variables('ilbName'), 'fe')]"
               },
               "backendAddressPool": {
-                "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('ilbName'), variables('bePoolName'))]"
+              "id": "[resourceId('Microsoft.Network/loadBalancers/backendAddressPools', variables('ilbName'), variables('bePoolName'))]"
               },
               "protocol": "Tcp",
               "frontendPort": 5432,

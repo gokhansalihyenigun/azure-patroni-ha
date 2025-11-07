@@ -112,7 +112,7 @@ write_files:
           - host all all 10.50.0.0/16 md5
         users:
           replicator:
-            password: ChangeMe123!
+            password: ChangeMe123Pass
             options:
               - replication
       postgresql:
@@ -124,10 +124,10 @@ write_files:
         authentication:
           superuser:
             username: postgres
-            password: ChangeMe123!
+            password: ChangeMe123Pass
           replication:
             username: replicator
-            password: ChangeMe123!
+            password: ChangeMe123Pass
       tags:
         nofailover: false
         noloadbalance: false
